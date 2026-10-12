@@ -8,20 +8,20 @@ const items = [
   { href: "/", label: "Overview" },
   { href: "/transactions", label: "Transactions" },
   { href: "/forecast", label: "Forecast" },
-  { href: "/chat", label: "FinPal Chat" },
+  { href: "/chat", label: "Kifayat Chat" },
 ]
 
 export function Nav() {
   const path = usePathname()
   return (
     <header className="border-b border-default sticky top-0 z-30 backdrop-blur-md bg-[rgba(11,13,18,0.85)]">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3">
+      <div className="mx-auto flex max-w-6xl flex-col items-stretch gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
         <Link href="/" className="flex items-center gap-2 font-semibold">
           <span className="text-primary">●</span>
-          <span>FinPal</span>
-          <span className="text-xs text-muted ml-1">AI Finance</span>
+          <span>Kifayat</span>
+          <span className="hidden text-xs text-muted ml-1 sm:inline">AI Finance</span>
         </Link>
-        <nav className="flex items-center gap-1 text-sm">
+        <nav aria-label="Primary navigation" className="flex items-center gap-1 overflow-x-auto text-sm pb-1 sm:pb-0">
           {items.map((it) => {
             const active = path === it.href || (it.href !== "/" && path.startsWith(it.href))
             return (
@@ -29,7 +29,7 @@ export function Nav() {
                 key={it.href}
                 href={it.href}
                 className={cn(
-                  "rounded-md px-3 py-1.5 transition-colors",
+                  "shrink-0 rounded-md px-3 py-2 transition-colors",
                   active ? "bg-card text-primary" : "text-muted hover:text-white hover:bg-card",
                 )}
               >

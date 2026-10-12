@@ -2,7 +2,7 @@
  * Local sentence embeddings via Transformers.js.
  * Model: Xenova/all-MiniLM-L6-v2 (384 dims). Downloads to .cache on first call.
  */
-import { env, pipeline, type FeatureExtractionPipeline } from "@xenova/transformers"
+import { env, pipeline, type FeatureExtractionPipeline } from "@huggingface/transformers"
 
 // disable HF Hub progress bars in console; allow remote model fetch on first run
 env.allowLocalModels = true
@@ -13,7 +13,7 @@ let pipePromise: Promise<FeatureExtractionPipeline> | null = null
 export async function getEmbedder(): Promise<FeatureExtractionPipeline> {
   if (!pipePromise) {
     pipePromise = pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2", {
-      quantized: true,
+      dtype: "q8",
     }) as unknown as Promise<FeatureExtractionPipeline>
   }
   return pipePromise

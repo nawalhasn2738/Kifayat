@@ -12,7 +12,8 @@
  */
 import { prisma } from "@/lib/db"
 import { ForecastResult } from "@/lib/types"
-import { mean, monthsAgo, stdev, ymKey } from "@/lib/finance/helpers"
+import { mean, stdev, ymKey } from "@/lib/finance/helpers"
+import { getAnalysisDate } from "@/lib/finance/clock"
 
 const ALPHA = 0.5
 
@@ -39,7 +40,7 @@ function linearTrendSlope(values: number[]) {
   return den === 0 ? 0 : num / den
 }
 
-export async function runForecast(userId: number, asOf = new Date()): Promise<ForecastResult> {
+export async function runForecast(userId: number, asOf = getAnalysisDate()): Promise<ForecastResult> {
   // Look at the previous three full months relative to current month.
   // For our seed (today=2026-05-10), this means Feb, Mar, Apr 2026.
   const startWindow = new Date(asOf.getFullYear(), asOf.getMonth() - 3, 1) // Feb 1
@@ -106,7 +107,7 @@ export async function runForecast(userId: number, asOf = new Date()): Promise<Fo
   }
 }
 
-export async function listAnomalies(userId: number, asOf = new Date()) {
+export async function listAnomalies(userId: number, asOf = getAnalysisDate()) {
   // Per-category transaction-level z-score over last 3 months.
   const start = new Date(asOf.getFullYear(), asOf.getMonth() - 3, 1)
   const end = new Date(asOf.getFullYear(), asOf.getMonth(), 0, 23, 59, 59, 999)

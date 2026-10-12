@@ -34,7 +34,7 @@ export default async function OverviewPage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex items-center justify-between">
+      <header className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Overview</h1>
           <p className="text-muted text-sm flex items-center gap-2">
@@ -43,7 +43,7 @@ export default async function OverviewPage() {
           </p>
         </div>
         <Link href="/chat" className="btn btn-primary">
-          Ask FinPal →
+          Ask Kifayat →
         </Link>
       </header>
 
@@ -101,7 +101,8 @@ export default async function OverviewPage() {
             View all →
           </Link>
         </div>
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="min-w-[620px] w-full text-sm">
           <thead className="text-muted text-xs">
             <tr>
               <th className="text-left py-2">Date</th>
@@ -126,6 +127,7 @@ export default async function OverviewPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   )

@@ -39,6 +39,8 @@ export default function TransactionBrowser() {
   }, [page, selectedCategory, refreshKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    // Fetching is intentionally triggered whenever the memoized query changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchTransactions()
   }, [fetchTransactions])
 
@@ -81,7 +83,7 @@ export default function TransactionBrowser() {
   return (
     <div className="space-y-5">
       {/* Header */}
-      <header className="flex items-center justify-between">
+      <header className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Transactions</h1>
           <p className="text-muted text-sm">
@@ -139,7 +141,8 @@ export default function TransactionBrowser() {
         ) : transactions.length === 0 ? (
           <p className="text-muted text-sm py-6 text-center">No transactions found.</p>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="min-w-[900px] w-full text-sm">
             <thead className="text-muted text-xs">
               <tr>
                 <th className="text-left py-2">Date</th>
@@ -206,6 +209,7 @@ export default function TransactionBrowser() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
 
         {/* Pagination */}

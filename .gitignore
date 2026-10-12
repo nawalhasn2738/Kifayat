@@ -24,6 +24,8 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+.web-dev*.log
+mobile/.expo-dev*.log
 
 # local env files (NEVER commit secrets)
 .env
@@ -32,6 +34,8 @@ yarn-error.log*
 # prisma local SQLite DB
 prisma/dev.db
 prisma/dev.db-journal
+prisma/prisma/dev.db
+prisma/prisma/dev.db-journal
 
 # transformers.js model cache (~25 MB binary, don't commit)
 .cache/

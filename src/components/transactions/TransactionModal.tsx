@@ -145,6 +145,9 @@ export default function TransactionModal({ variant, initialData, onSuccess, onCl
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="transaction-dialog-title"
         className="rounded-xl border overflow-hidden w-full max-w-lg mx-4 overflow-y-auto max-h-[90vh]"
         style={{ background: "var(--bg-card)", borderColor: "var(--border)" }}
       >
@@ -155,9 +158,9 @@ export default function TransactionModal({ variant, initialData, onSuccess, onCl
         >
           <div className="flex items-center gap-2">
             <span className={`text-xl font-bold ${h.cls}`}>{h.icon}</span>
-            <span className={`font-semibold text-base ${h.cls}`}>{h.title}</span>
+            <span id="transaction-dialog-title" className={`font-semibold text-base ${h.cls}`}>{h.title}</span>
           </div>
-          <button type="button" className="btn btn-ghost px-2 py-1 text-xs" onClick={onClose}>✕</button>
+          <button type="button" aria-label="Close transaction dialog" className="btn btn-ghost px-2 py-1 text-xs" onClick={onClose}>✕</button>
         </div>
 
         {/* ── Form body ── */}
@@ -219,7 +222,7 @@ export default function TransactionModal({ variant, initialData, onSuccess, onCl
               </div>
 
               {/* Source + Date */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className="block text-xs text-muted mb-1">Source / Payer</label>
                   <input type="text" className="input" placeholder="e.g. Client, company"
@@ -290,7 +293,7 @@ export default function TransactionModal({ variant, initialData, onSuccess, onCl
               </div>
 
               {/* Amount + Account */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className="block text-xs text-muted mb-1">Amount Spent (PKR) *</label>
                   <input type="number" className="input" placeholder="e.g. 800"
@@ -319,31 +322,12 @@ export default function TransactionModal({ variant, initialData, onSuccess, onCl
                 </div>
               </div>
 
-              {/* Expense vs Transfer toggle */}
-              <div>
-                <label className="block text-xs text-muted mb-2">Transaction Type</label>
-                <div className="flex gap-2">
-                  {(["expense", "transfer"] as const).map((t) => (
-                    <button key={t} type="button" onClick={() => setTxType(t)}
-                      style={{
-                        padding: "6px 16px", cursor: "pointer", borderRadius: "8px",
-                        background: txType === t ? "rgba(248,113,113,0.18)" : "transparent",
-                        border: `1px solid ${txType === t ? "var(--danger)" : "var(--border)"}`,
-                        color: txType === t ? "var(--danger)" : "var(--fg-muted)",
-                        fontWeight: txType === t ? 600 : 400, fontSize: "0.875rem",
-                      }}
-                    >
-                      {t === "expense" ? "● Expense" : "⇌ Transfer"}
-                    </button>
-                  ))}
-                </div>
-              </div>
             </>
           )}
 
           {/* ════════ EDIT (neutral, all fields) ════════ */}
           {variant === "edit" && (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <label className="block text-xs text-muted mb-1">Date *</label>
                 <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} required />

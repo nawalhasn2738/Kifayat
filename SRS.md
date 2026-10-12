@@ -1,10 +1,12 @@
 # Software Requirements Specification (SRS)
-# FinPal — AI Personal Finance Manager + Intelligent Chatbot
+# Kifayat — AI Personal Finance Manager + Intelligent Chatbot
 
 **Document Version:** 1.0  
 **Date:** 2026-05-10  
 **Author:** Solo Developer (FAST University, NLP Semester Project)  
 **Status:** COMPLETE — MVP ready for viva demonstration
+
+> Implementation note (October 2026): this document describes the original target, not a fully verified acceptance report. Authentication, database-backed chat persistence, and streaming output validation are not currently wired. The maintained setup and verified commands are documented in `README.md`.
 
 ---
 
@@ -35,7 +37,7 @@ This SRS follows IEEE 830-1998 conventions adapted for agile MVPs. Sections cove
 ## 2. Overall Description
 
 ### 2.1 Product Overview
-**FinPal** is a web application for a single Pakistani user to:
+**Kifayat** is a web and native mobile application for a single Pakistani user to:
 - Track income, expenses, and savings across 14 spending categories
 - Receive AI-powered advice grounded in personal financial data
 - Forecast next-month spending with confidence intervals
@@ -127,7 +129,7 @@ The centerpiece is a **Groq-powered chatbot** that routes user questions to 11 f
 | **Rendering** | Server Component |
 | **Acceptance** | Sorted newest first; amounts formatted with PKR symbol and comma grouping; no PII leaks |
 
-| FR-1.6 | CTA: "Ask FinPal" |
+| FR-1.6 | CTA: "Ask Kifayat" |
 |---|---|
 | **Description** | Button or text link → `/chat` page |
 | **Rendering** | Visible on bottom-right |
@@ -715,7 +717,7 @@ The centerpiece is a **Groq-powered chatbot** that routes user questions to 11 f
 
 | Feature | Acceptance Criteria |
 |---|---|
-| Overview Page | All 4 KPI cards load with correct values; charts render with real data; "Ask FinPal" CTA works |
+| Overview Page | All 4 KPI cards load with correct values; charts render with real data; "Ask Kifayat" CTA works |
 | Transactions Page | ≥128 transactions displayed; pagination works; category filter works; sorting by date works |
 | Forecast Page | Next-month bar chart renders with ±1σ bands; affordability simulator works ("can afford" / "wait X months" answers are correct); savings rec card shows 20% target |
 | Chat Page | Message input sends; assistant response streams token-by-token; tool calls are visible in trace panel; 6 sample-question chips work; error on bad API key shows graceful message |
@@ -830,7 +832,7 @@ The centerpiece is a **Groq-powered chatbot** that routes user questions to 11 f
 ### 9.3 File Structure (Abbreviated)
 
 ```
-finance-ai/
+kifayat/
 ├── README.md                           # User-facing doc
 ├── SRS.md                              # This document
 ├── .env.example                        # Template for .env.local

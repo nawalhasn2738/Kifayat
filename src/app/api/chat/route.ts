@@ -1,7 +1,8 @@
-import { streamText } from "ai"
+import { streamText, type CoreMessage } from "ai"
 import { createGroq } from "@ai-sdk/groq"
 import { buildSystemPrompt } from "@/lib/chat/prompt"
 import { buildTools, DEMO_USER_ID } from "@/lib/chat/tools"
+import { z } from "zod"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -11,7 +12,10 @@ const groq = createGroq({
 })
 
 const CHAT_COOLDOWN_MS = 8000
-let lastChatRequestAt = 0
+const lastChatRequestAt = new Map<string, number>()
+const ChatRequestSchema = z.object({
+  messages: z.array(z.unknown()).min(1).max(50),
+})
 
 function getClientErrorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : String(error ?? "")
@@ -25,7 +29,7 @@ function getClientErrorMessage(error: unknown) {
 }
 
 export async function POST(req: Request) {
-  if (!process.env.GROQ_API_KEY || process.env.GROQ_API_KEY.startsWith("REPLACE_WITH_")) {
+  if (!process.env.GROQ_API_KEY || process.env.GROQ_API_KEY.includes("your-groq")) {
     return Response.json(
       {
         error:
@@ -35,8 +39,9 @@ export async function POST(req: Request) {
     )
   }
 
+  const clientId = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "local"
   const now = Date.now()
-  const elapsed = now - lastChatRequestAt
+  const elapsed = now - (lastChatRequestAt.get(clientId) ?? 0)
   if (elapsed < CHAT_COOLDOWN_MS) {
     const retryAfterSeconds = Math.ceil((CHAT_COOLDOWN_MS - elapsed) / 1000)
     return Response.json(
@@ -51,15 +56,19 @@ export async function POST(req: Request) {
       },
     )
   }
-  lastChatRequestAt = now
+  lastChatRequestAt.set(clientId, now)
 
-  const { messages } = await req.json()
+  const parsed = ChatRequestSchema.safeParse(await req.json().catch(() => null))
+  if (!parsed.success) {
+    return Response.json({ error: "Invalid chat request." }, { status: 400 })
+  }
+  const messages = parsed.data.messages as CoreMessage[]
 
   const system = await buildSystemPrompt(DEMO_USER_ID)
   const tools = buildTools(DEMO_USER_ID)
 
   const result = streamText({
-    model: groq("llama-3.3-70b-versatile"),
+    model: groq(process.env.GROQ_MODEL ?? "openai/gpt-oss-120b"),
     system,
     messages,
     tools,

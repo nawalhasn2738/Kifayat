@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db"
 import { bytesToFloat32, cosine, embed } from "@/lib/rag/embed"
 
-let memoryCache: Map<
+const memoryCache: Map<
   number,
   Array<{
     id: number

@@ -24,9 +24,10 @@ import type {
   InstallmentResult,
   RiskScoreResult,
 } from "@/lib/types"
+import { getAnalysisDate } from "@/lib/finance/clock"
 
 // Build the underlying financial context once per request, then reuse.
-export async function buildContext(userId: number, asOf = new Date()) {
+export async function buildContext(userId: number, asOf = getAnalysisDate()) {
   const profile = await prisma.userProfile.findUnique({ where: { userId } })
   if (!profile) throw new Error(`No profile for user ${userId}`)
   const accounts = await prisma.account.findMany({ where: { userId } })

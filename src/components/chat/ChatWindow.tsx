@@ -44,14 +44,14 @@ export function ChatWindow() {
       : "Please try again in a few seconds."
 
   return (
-    <div className="flex flex-col h-[calc(100vh-160px)]">
+    <div className="flex min-h-[65vh] flex-col sm:h-[calc(100vh-160px)]">
       <div className="flex-1 overflow-y-auto space-y-4 pb-4">
         {messages.length === 0 && (
           <div className="card">
-            <h3 className="font-medium">Hi, I'm FinPal.</h3>
+            <h3 className="font-medium">Hi, I&apos;m Kifayat.</h3>
             <p className="text-muted text-sm mt-1">
               Ask me about your spending, what you can afford, your risk score, or what
-              you'll likely spend next month. I always cite the data I'm using.
+              you&apos;ll likely spend next month. I always cite the data I&apos;m using.
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               {SAMPLE_QUESTIONS.map((q) => (
@@ -79,7 +79,7 @@ export function ChatWindow() {
               key={m.id}
               className={`flex ${isUser ? "justify-end" : "justify-start"}`}
             >
-              <div className={`max-w-[80%] ${isUser ? "" : "w-full"}`}>
+              <div className={`max-w-[92%] sm:max-w-[80%] ${isUser ? "" : "w-full"}`}>
                 <div
                   className={`rounded-2xl px-4 py-3 text-sm whitespace-pre-wrap leading-relaxed ${
                     isUser
@@ -127,7 +127,7 @@ export function ChatWindow() {
       >
         <input
           className="input flex-1"
-          placeholder={isLoading ? "FinPal is thinking…" : "Ask about your finances…"}
+          placeholder={isLoading ? "Kifayat is thinking…" : "Ask about your finances…"}
           value={input}
           onChange={handleInputChange}
           disabled={isLoading}

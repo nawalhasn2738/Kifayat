@@ -8,14 +8,13 @@ import {
   startOfMonth,
 } from "@/lib/finance/helpers"
 import type { FinancialSnapshot, Window } from "@/lib/types"
+import { getAnalysisDate } from "@/lib/finance/clock"
 
-export async function getSnapshot(userId: number, asOf = new Date()): Promise<FinancialSnapshot> {
+export async function getSnapshot(userId: number, asOf = getAnalysisDate()): Promise<FinancialSnapshot> {
   const accounts = await prisma.account.findMany({ where: { userId } })
 
   const thisFrom = startOfMonth(asOf)
   const thisTo = endOfMonth(asOf)
-  const lastFrom = startOfMonth(monthsAgo(asOf, 1))
-  const lastTo = endOfMonth(monthsAgo(asOf, 1))
   const last3From = startOfMonth(monthsAgo(asOf, 3))
 
   const monthly = await monthlyTotals(userId, last3From, thisTo)
@@ -70,7 +69,7 @@ function ymKeyOf(d: Date, offset: number) {
 export async function getCategoryBreakdownService(
   userId: number,
   window: Window,
-  asOf = new Date(),
+  asOf = getAnalysisDate(),
   filterCategories?: string[],
 ) {
   let from: Date, to: Date

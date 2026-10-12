@@ -1,12 +1,23 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  experimental: {
-    serverComponentsExternalPackages: ["@xenova/transformers", "@prisma/client", "prisma"],
-  },
-  webpack: (config) => {
-    // sharp / onnxruntime-node are native binary deps used by transformers.js
-    config.externals = [...(config.externals || []), "sharp", "onnxruntime-node"]
-    return config
+  serverExternalPackages: [
+    "@huggingface/transformers",
+    "@prisma/client",
+    "prisma",
+    "sharp",
+    "onnxruntime-node",
+  ],
+  async headers() {
+    return [
+      {
+        source: "/api/:path*",
+        headers: [
+          { key: "Access-Control-Allow-Origin", value: "*" },
+          { key: "Access-Control-Allow-Methods", value: "GET,POST,OPTIONS" },
+          { key: "Access-Control-Allow-Headers", value: "Content-Type" },
+        ],
+      },
+    ]
   },
 }
 

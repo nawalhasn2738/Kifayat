@@ -22,6 +22,7 @@ import {
 } from "@/lib/finance/snapshot"
 import { listAnomalies, runForecast } from "@/lib/forecast/engine"
 import { retrieveSimilar } from "@/lib/rag/retrieve"
+import { getAnalysisDate } from "@/lib/finance/clock"
 
 export const DEMO_USER_ID = 1
 
@@ -45,7 +46,7 @@ export function buildTools(userId: number = DEMO_USER_ID) {
           .describe("Optional list of category names to filter to"),
       }),
       execute: async ({ window, categories }) =>
-        getCategoryBreakdownService(userId, window, new Date(), categories),
+        getCategoryBreakdownService(userId, window, getAnalysisDate(), categories),
     }),
 
     getForecast: tool({

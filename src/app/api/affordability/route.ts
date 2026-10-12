@@ -11,8 +11,10 @@ const Schema = z.object({
 export const runtime = "nodejs"
 
 export async function POST(req: Request) {
-  const body = await req.json()
-  const args = Schema.parse(body)
+  const parsed = Schema.safeParse(await req.json().catch(() => null))
+  if (!parsed.success) {
+    return Response.json({ error: parsed.error.flatten() }, { status: 400 })
+  }
   const ctx = await buildContext(DEMO_USER_ID)
-  return Response.json(affordability(ctx, args))
+  return Response.json(affordability(ctx, parsed.data))
 }

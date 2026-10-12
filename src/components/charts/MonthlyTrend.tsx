@@ -20,6 +20,8 @@ export function MonthlyTrend({
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
+    // Recharts needs browser layout information before ResponsiveContainer renders.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true)
   }, [])
 

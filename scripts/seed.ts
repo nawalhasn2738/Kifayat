@@ -78,8 +78,6 @@ const NOTES_BY_CAT: Record<string, string[]> = {
 const START = new Date("2026-02-10T00:00:00")
 const END = new Date("2026-05-10T23:59:59")
 const MONTHLY_INCOME = 120_000
-const SAVINGS_TARGET_PER_MONTH = 20_000
-
 const dateInRange = (from: Date, to: Date) =>
   new Date(faker.date.between({ from, to }).setHours(r(8, 22), r(0, 59), 0, 0))
 
@@ -529,8 +527,8 @@ async function main() {
   console.log(`Total transactions: ${txs.length}`)
   console.log(`Total expense over 3 months: PKR ${totalExpense.toLocaleString("en-PK")}`)
   if (totalExpense < 200_000 || totalExpense > 300_000) {
-    console.warn(
-      `⚠ Total expense ${totalExpense} is outside [200k, 300k]. Adjust seed numbers.`,
+    throw new Error(
+      `Total expense ${totalExpense} is outside [200k, 300k]. Adjust seed numbers before using this dataset.`,
     )
   } else {
     console.log("✔ Total expense within target range [200k, 300k].")

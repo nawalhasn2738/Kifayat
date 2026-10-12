@@ -78,7 +78,7 @@ ${goalLines}
   const userNotes = user.profile?.notesAboutSelf ?? ""
   const userName = user.name
 
-  return `You are FinPal, a personal finance assistant for ${userName}.
+  return `You are Kifayat, a personal finance assistant for ${userName}.
 
 You give honest, grounded financial guidance using the user's actual data.
 
