@@ -1,15 +1,17 @@
-import { useCallback, useState } from 'react';
-import { router } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { ErrorState, LoadingState, PrimaryButton, Screen, SectionTitle, palette, styles as ui } from '@/components/finance-ui';
 import { api } from '@/lib/api';
 import { useApi } from '@/hooks/use-api';
 
 export default function AddTransactionScreen() {
+  const { id: rawId } = useLocalSearchParams<{ id?: string }>();
+  const editId = rawId ? Number.parseInt(Array.isArray(rawId) ? rawId[0] : rawId, 10) : null;
   const load = useCallback(async () => {
-    const [categories, accounts, summary] = await Promise.all([api.categories(), api.accounts(), api.summary()]);
-    return { categories, accounts, summary };
-  }, []);
+    const [categories, accounts, summary, transaction] = await Promise.all([api.categories(), api.accounts(), api.summary(), editId ? api.transaction(editId) : null]);
+    return { categories, accounts, summary, transaction };
+  }, [editId]);
   const { data, loading, error, reload } = useApi(load);
   const [type, setType] = useState<'income' | 'expense'>('expense');
   const [amount, setAmount] = useState('');
@@ -19,6 +21,18 @@ export default function AddTransactionScreen() {
   const [accountId, setAccountId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [initialized, setInitialized] = useState(false);
+
+  useEffect(() => {
+    if (!data?.transaction || initialized) return;
+    const transaction = data.transaction;
+    // Populate the controlled form once after the asynchronous local record loads.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setType(transaction.type === 'income' ? 'income' : 'expense');
+    setAmount(String(Math.abs(transaction.amount))); setMerchant(transaction.merchant ?? '');
+    setDescription(transaction.description ?? ''); setCategoryId(transaction.category?.id ?? null);
+    setAccountId(transaction.account.id); setInitialized(true);
+  }, [data, initialized]);
 
   if (loading && !data) return <Screen><LoadingState /></Screen>;
   if (error && !data) return <Screen><View style={local.pad}><ErrorState message={error} retry={reload} /></View></Screen>;
@@ -45,15 +59,17 @@ export default function AddTransactionScreen() {
     setSaving(true);
     setFormError(null);
     try {
-      await api.createTransaction({
-        date: data!.summary.asOf.slice(0, 10),
+      const input = {
+        date: data!.transaction?.date ?? new Date().toISOString(),
         amount: numericAmount,
         type,
         categoryId,
         accountId: selectedAccountId,
         merchant: merchant.trim() || null,
         description: description.trim() || null,
-      });
+      };
+      if (editId) await api.updateTransaction(editId, input);
+      else await api.createTransaction(input);
       router.back();
     } catch (caught) {
       setFormError(caught instanceof Error ? caught.message : 'Could not save transaction.');
@@ -67,7 +83,7 @@ export default function AddTransactionScreen() {
       <KeyboardAvoidingView style={local.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={90}>
         <ScrollView contentContainerStyle={local.content} keyboardShouldPersistTaps="handled">
           <View>
-            <SectionTitle>Record a transaction</SectionTitle>
+            <SectionTitle>{editId ? 'Edit transaction' : 'Record a transaction'}</SectionTitle>
             <Text style={ui.muted}>The transaction will update the selected account balance.</Text>
           </View>
 

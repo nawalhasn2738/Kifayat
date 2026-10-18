@@ -1,7 +1,8 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Screen, palette, styles as ui } from '@/components/finance-ui';
 import { api } from '@/lib/api';
+import { getOrCreateConversation, listMessages, saveMessage } from '@/lib/repositories/chat';
 
 type Message = { id: string; role: 'user' | 'assistant'; content: string };
 const suggestions = ['How risky is my spending?', 'Can I afford an iPhone?', 'What will I spend next month?'];
@@ -13,6 +14,15 @@ export default function ChatScreen() {
   const [error, setError] = useState<string | null>(null);
   const list = useRef<FlatList<Message>>(null);
   const idSequence = useRef(0);
+  const conversationId = useRef<number | null>(null);
+
+  useEffect(() => {
+    void getOrCreateConversation().then(async (id) => {
+      conversationId.current = id;
+      const saved = await listMessages(id);
+      setMessages(saved.filter((item) => item.role !== 'tool').map((item) => ({ id: String(item.id), role: item.role as 'user' | 'assistant', content: item.content })));
+    }).catch((caught) => setError(caught instanceof Error ? caught.message : 'Could not load chat history.'));
+  }, []);
 
   async function send(content = input) {
     const trimmed = content.trim();
@@ -21,7 +31,11 @@ export default function ChatScreen() {
     const next = [...messages, user];
     setMessages(next); setInput(''); setLoading(true); setError(null);
     try {
+      const chatId = conversationId.current ?? await getOrCreateConversation();
+      conversationId.current = chatId;
+      await saveMessage(chatId, 'user', trimmed);
       const response = await api.chat(next.map(({ role, content: text }) => ({ role, content: text })));
+      await saveMessage(chatId, 'assistant', response.text);
       setMessages((current) => [...current, { id: `${++idSequence.current}-a`, role: 'assistant', content: response.text }]);
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Chat failed'); }
     finally { setLoading(false); setTimeout(() => list.current?.scrollToEnd({ animated: true }), 50); }

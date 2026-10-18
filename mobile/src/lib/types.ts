@@ -14,6 +14,7 @@ export type Summary = {
 
 export type Transaction = {
   id: number;
+  clientId: string;
   date: string;
   amount: number;
   type: 'income' | 'expense' | 'transfer';

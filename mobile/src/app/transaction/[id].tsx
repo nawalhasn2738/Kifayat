@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
-import { useLocalSearchParams } from 'expo-router';
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Card, ErrorState, LoadingState, Screen, SectionTitle, palette, styles as ui } from '@/components/finance-ui';
+import { router, useLocalSearchParams } from 'expo-router';
+import { Alert, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Card, ErrorState, LoadingState, PrimaryButton, Screen, SectionTitle, palette, styles as ui } from '@/components/finance-ui';
 import { api, formatPKR } from '@/lib/api';
 import { useApi } from '@/hooks/use-api';
 
@@ -17,6 +17,10 @@ export default function TransactionDetailsScreen() {
   if (!data) return null;
 
   const positive = data.type === 'income';
+  const remove = () => Alert.alert('Delete transaction?', 'This will also reverse its account balance change.', [
+    { text: 'Cancel', style: 'cancel' },
+    { text: 'Delete', style: 'destructive', onPress: () => void api.deleteTransaction(id).then(() => router.replace('/(tabs)/transactions')).catch((caught) => Alert.alert('Could not delete', caught instanceof Error ? caught.message : 'Please try again.')) },
+  ]);
   return (
     <Screen>
       <ScrollView contentContainerStyle={local.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={reload} tintColor={palette.primary} />}>
@@ -36,6 +40,8 @@ export default function TransactionDetailsScreen() {
           <Detail label="Description" value={data.description ?? 'No description'} />
           <Detail label="Anomaly" value={data.isAnomaly ? 'Flagged for review' : 'No unusual activity detected'} />
         </Card>
+        <PrimaryButton label="Edit transaction" onPress={() => router.push({ pathname: '/add-transaction', params: { id: String(id) } })} />
+        <Text accessibilityRole="button" onPress={remove} style={local.delete}>Delete transaction</Text>
       </ScrollView>
     </Screen>
   );
@@ -53,4 +59,5 @@ const local = StyleSheet.create({
   detail: { borderTopColor: palette.border, borderTopWidth: 1, paddingTop: 11, gap: 3 },
   label: { color: palette.muted, fontSize: 11, fontWeight: '700', textTransform: 'uppercase' },
   value: { color: palette.text, fontSize: 15, textTransform: 'capitalize' },
+  delete: { color: '#ff7b7b', textAlign: 'center', padding: 14, fontWeight: '700' },
 });
