@@ -4,6 +4,7 @@ import { Card, ErrorState, LoadingState, PrimaryButton, Screen, SectionTitle, pa
 import { api, formatPKR } from '@/lib/api';
 import { useApi } from '@/hooks/use-api';
 import type { Affordability } from '@/lib/types';
+import { parsePkrAmount } from '@/lib/validation/transaction';
 
 export default function PlanningScreen() {
   const load = useCallback(() => api.forecast(), []);
@@ -18,7 +19,7 @@ export default function PlanningScreen() {
   async function check() {
     setChecking(true); setCheckError(null);
     try {
-      setResult(await api.affordability({ itemName: item || 'Item', price: Number.parseInt(price, 10), monthsAhead: Number.parseInt(months, 10) || 0 }));
+      setResult(await api.affordability({ itemName: item || 'Item', price: parsePkrAmount(price), monthsAhead: Number.parseInt(months, 10) || 0 }));
     } catch (caught) { setCheckError(caught instanceof Error ? caught.message : 'Check failed'); }
     finally { setChecking(false); }
   }

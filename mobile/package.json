@@ -25,6 +25,7 @@
     "@types/node": "^26.6.5",
     "@types/react": "~19.2.2",
     "babel-plugin-inline-import": "^3.0.0",
+    "better-sqlite3": "12.11.1",
     "drizzle-kit": "^0.31.11",
     "eslint": "^9.39.5",
     "eslint-config-expo": "~57.0.2",
@@ -38,7 +39,7 @@
     "lint": "eslint --config ./eslint.config.mjs src",
     "typecheck": "tsc --noEmit && tsc --project tsconfig.tests.json",
     "doctor": "expo-doctor",
-    "test": "tsx --test tests/**/*.test.ts",
+    "test": "tsx --test --test-isolation=none tests/**/*.test.ts tests/**/*.test.mjs",
     "db:generate": "drizzle-kit generate",
     "check": "npm run typecheck && npm run lint && npm test"
   },

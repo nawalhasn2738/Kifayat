@@ -1,7 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { accounts, categories, savingsGoals, userProfiles, users } from './schema';
-import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
-import type * as schema from './schema';
+import type { AppDatabase } from './types';
 
 export const LOCAL_USER_ID = 1;
 export const CATEGORY_SEED = [
@@ -17,18 +16,18 @@ export const CATEGORY_SEED = [
   ['anomaly', 'Anomaly', false, true],
 ] as const;
 
-export async function seedLocalProfile(database: ExpoSQLiteDatabase<typeof schema>) {
+export async function seedLocalProfile<TRunResult>(database: AppDatabase<TRunResult>) {
   const existing = await database.select({ id: users.id }).from(users).where(eq(users.id, LOCAL_USER_ID)).limit(1);
   if (existing.length) return;
-  await database.transaction(async (tx) => {
-    await tx.insert(users).values({ id: LOCAL_USER_ID, email: 'local@kifayat.app', name: 'Kifayat User' });
-    await tx.insert(userProfiles).values({ userId: LOCAL_USER_ID, monthlyIncome: 120_000, emergencyFundTarget: 240_000 });
-    await tx.insert(accounts).values([
+  database.transaction((tx) => {
+    tx.insert(users).values({ id: LOCAL_USER_ID, email: 'local@kifayat.app', name: 'Kifayat User' }).run();
+    tx.insert(userProfiles).values({ userId: LOCAL_USER_ID, monthlyIncome: 120_000, emergencyFundTarget: 240_000 }).run();
+    tx.insert(accounts).values([
       { userId: LOCAL_USER_ID, name: 'Main Account', type: 'checking', balance: 0 },
       { userId: LOCAL_USER_ID, name: 'Savings', type: 'savings', balance: 0 },
       { userId: LOCAL_USER_ID, name: 'Cash Wallet', type: 'cash', balance: 0 },
-    ]);
-    await tx.insert(categories).values(CATEGORY_SEED.map(([name, parent, isEssential, isHighRisk]) => ({ name, parent, isEssential, isHighRisk })));
-    await tx.insert(savingsGoals).values({ userId: LOCAL_USER_ID, name: 'Emergency Fund', targetAmount: 240_000, targetDate: new Date(new Date().getFullYear() + 1, 0, 1).toISOString(), currentAmount: 0 });
+    ]).run();
+    tx.insert(categories).values(CATEGORY_SEED.map(([name, parent, isEssential, isHighRisk]) => ({ name, parent, isEssential, isHighRisk }))).run();
+    tx.insert(savingsGoals).values({ userId: LOCAL_USER_ID, name: 'Emergency Fund', targetAmount: 240_000, targetDate: new Date(new Date().getFullYear() + 1, 0, 1).toISOString(), currentAmount: 0 }).run();
   });
 }

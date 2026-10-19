@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { ErrorState, LoadingState, PrimaryButton, Screen, SectionTitle, palette, styles as ui } from '@/components/finance-ui';
-import { api } from '@/lib/api';
+import { api, OverdraftConfirmationRequiredError, type TransactionMutationOptions } from '@/lib/api';
 import { useApi } from '@/hooks/use-api';
+import { parsePkrAmount, type TransactionInput } from '@/lib/validation/transaction';
 
 export default function AddTransactionScreen() {
   const { id: rawId } = useLocalSearchParams<{ id?: string }>();
@@ -45,12 +46,42 @@ export default function AddTransactionScreen() {
       : category.parent !== 'Income' && category.parent !== 'Transfer',
   );
 
-  async function save() {
-    const numericAmount = Number.parseInt(amount, 10);
-    if (!Number.isInteger(numericAmount) || numericAmount <= 0) {
-      setFormError('Enter a positive whole amount.');
-      return;
+  function showOverdraftConfirmation(input: TransactionInput, error: OverdraftConfirmationRequiredError) {
+    Alert.alert(
+      'Confirm overdraft',
+      `${error.accountName} would have a projected balance of PKR ${error.projectedBalance.toLocaleString('en-PK')}. Confirming will allow this account to go below zero.`,
+      [
+        { text: 'Cancel', style: 'cancel', onPress: () => setSaving(false) },
+        {
+          text: 'Confirm',
+          style: 'destructive',
+          onPress: () => void submitTransaction(input, {
+            overdraftConfirmation: { accountId: error.accountId, projectedBalance: error.projectedBalance },
+          }),
+        },
+      ],
+      { cancelable: false },
+    );
+  }
+
+  async function submitTransaction(input: TransactionInput, options?: TransactionMutationOptions) {
+    try {
+      if (editId) await api.updateTransaction(editId, input, options);
+      else await api.createTransaction(input, options);
+      setSaving(false);
+      router.back();
+    } catch (caught) {
+      if (caught instanceof OverdraftConfirmationRequiredError) {
+        showOverdraftConfirmation(input, caught);
+        return;
+      }
+      setFormError(caught instanceof Error ? caught.message : 'Could not save transaction.');
+      setSaving(false);
     }
+  }
+
+  async function save() {
+    if (saving) return;
     if (!selectedAccountId) {
       setFormError('Select an account before saving.');
       return;
@@ -59,7 +90,8 @@ export default function AddTransactionScreen() {
     setSaving(true);
     setFormError(null);
     try {
-      const input = {
+      const numericAmount = parsePkrAmount(amount);
+      const input: TransactionInput = {
         date: data!.transaction?.date ?? new Date().toISOString(),
         amount: numericAmount,
         type,
@@ -68,12 +100,9 @@ export default function AddTransactionScreen() {
         merchant: merchant.trim() || null,
         description: description.trim() || null,
       };
-      if (editId) await api.updateTransaction(editId, input);
-      else await api.createTransaction(input);
-      router.back();
+      await submitTransaction(input);
     } catch (caught) {
       setFormError(caught instanceof Error ? caught.message : 'Could not save transaction.');
-    } finally {
       setSaving(false);
     }
   }

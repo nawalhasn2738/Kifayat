@@ -1,6 +1,7 @@
 import { getProfile, listAccounts, listCategories } from '@/lib/repositories/catalog';
 import { listTransactions } from '@/lib/repositories/transactions';
 import type { Affordability, Forecast, Risk, Summary, Transaction } from '@/lib/types';
+import { MAX_PKR_AMOUNT } from '@/lib/validation/transaction';
 
 const key = (iso: string) => iso.slice(0, 7);
 const mean = (xs: number[]) => xs.length ? xs.reduce((sum, value) => sum + value, 0) / xs.length : 0;
@@ -80,7 +81,7 @@ export async function getRisk(): Promise<Risk> {
 }
 
 export async function getAffordability(input: { itemName: string; price: number; monthsAhead: number }): Promise<Affordability> {
-  if (!Number.isInteger(input.price) || input.price <= 0) throw new Error('Enter a valid positive whole amount.');
+  if (!Number.isInteger(input.price) || input.price <= 0 || input.price > MAX_PKR_AMOUNT) throw new Error('Enter a valid positive whole amount within the supported range.');
   const [summary, profile] = await Promise.all([getSummary(), getProfile()]);
   const buffer = Math.max(profile.emergencyFundTarget, summary.spend.threeMonthAvg * 3);
   const projected = summary.totalBalance + input.monthsAhead * Math.max(0, summary.savings.threeMonthAvg);
