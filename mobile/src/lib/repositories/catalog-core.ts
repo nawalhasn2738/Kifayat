@@ -1,11 +1,28 @@
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { LOCAL_USER_ID } from '@/lib/db/seed';
 import { accounts, categories, transactions, userProfiles } from '@/lib/db/schema';
 import type { AppDatabase } from '@/lib/db/types';
+import { validatePersistedTransaction } from '@/lib/validation/transaction';
 
 export type CatalogRepositoryDependencies = {
   userId: number;
 };
+
+const unsafeReconciliationError = 'Account reconciliation requires JavaScript safe integer monetary values.';
+
+function checkedMoneyAdd(left: number, right: number) {
+  if (!Number.isSafeInteger(left) || !Number.isSafeInteger(right)) throw new Error(unsafeReconciliationError);
+  const result = left + right;
+  if (!Number.isSafeInteger(result)) throw new Error(unsafeReconciliationError);
+  return result;
+}
+
+function checkedMoneySubtract(left: number, right: number) {
+  if (!Number.isSafeInteger(left) || !Number.isSafeInteger(right)) throw new Error(unsafeReconciliationError);
+  const result = left - right;
+  if (!Number.isSafeInteger(result)) throw new Error(unsafeReconciliationError);
+  return result;
+}
 
 export type AccountBalanceReconciliation = {
   accountId: number;
@@ -26,29 +43,46 @@ export function createCatalogRepository<TRunResult>(
   const listCategories = () => database.select().from(categories).orderBy(asc(categories.name));
 
   async function reconcileAccountBalances(): Promise<AccountBalanceReconciliation[]> {
-    const rows = await database.select({
-      accountId: accounts.id,
-      accountName: accounts.name,
-      storedBalance: accounts.balance,
-      transactionEffectTotal: sql<number>`coalesce(sum(${transactions.amount}), 0)`,
-    }).from(accounts).leftJoin(transactions, and(
-      eq(transactions.accountId, accounts.id),
-      eq(transactions.userId, dependencies.userId),
-    )).where(eq(accounts.userId, dependencies.userId))
-      .groupBy(accounts.id, accounts.name, accounts.balance).orderBy(asc(accounts.name));
+    return database.transaction((tx) => {
+      const accountRows = tx.select({
+        accountId: accounts.id,
+        accountName: accounts.name,
+        storedBalance: accounts.balance,
+      }).from(accounts).where(eq(accounts.userId, dependencies.userId)).orderBy(asc(accounts.name)).all();
+      const effectRows = tx.select({
+        id: transactions.id,
+        clientId: transactions.clientId,
+        userId: transactions.userId,
+        accountId: transactions.accountId,
+        categoryId: transactions.categoryId,
+        date: transactions.date,
+        amount: transactions.amount,
+        type: transactions.type,
+      }).from(transactions).innerJoin(accounts, and(
+        eq(accounts.id, transactions.accountId),
+        eq(accounts.userId, dependencies.userId),
+      )).where(eq(transactions.userId, dependencies.userId)).all();
 
-    return rows.map((row) => {
-      const transactionEffectTotal = Number(row.transactionEffectTotal);
-      const candidateOpeningBalance = row.storedBalance - transactionEffectTotal;
-      return {
-        ...row,
-        transactionEffectTotal,
-        candidateOpeningBalance,
-        status: candidateOpeningBalance === 0 ? 'matched' as const : 'discrepancy' as const,
-      };
+      const effectTotals = new Map(accountRows.map((account) => [account.accountId, 0]));
+      for (const effect of effectRows) {
+        const validEffect = validatePersistedTransaction(effect);
+        const current = effectTotals.get(validEffect.accountId);
+        if (current === undefined) continue;
+        effectTotals.set(validEffect.accountId, checkedMoneyAdd(current, validEffect.amount));
+      }
+
+      return accountRows.map((account) => {
+        const transactionEffectTotal = effectTotals.get(account.accountId) ?? 0;
+        const candidateOpeningBalance = checkedMoneySubtract(account.storedBalance, transactionEffectTotal);
+        return {
+          ...account,
+          transactionEffectTotal,
+          candidateOpeningBalance,
+          status: candidateOpeningBalance === 0 ? 'matched' as const : 'discrepancy' as const,
+        };
+      });
     });
   }
-
   async function getProfile() {
     const [profile] = await database.select().from(userProfiles)
       .where(eq(userProfiles.userId, dependencies.userId)).limit(1);

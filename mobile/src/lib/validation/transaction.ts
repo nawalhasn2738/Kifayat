@@ -34,3 +34,45 @@ export type TransactionInput = z.infer<typeof transactionInputSchema>;
 export function validateTransactionInput(input: TransactionInput) {
   return transactionInputSchema.parse(input);
 }
+
+export type PersistedTransactionFinancialRecord = {
+  id: unknown;
+  clientId: unknown;
+  userId: unknown;
+  accountId: unknown;
+  categoryId: unknown;
+  date: unknown;
+  amount: unknown;
+  type: unknown;
+};
+
+function isSafeIntegerValue(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value);
+}
+
+function isPositiveSafeInteger(value: unknown): value is number {
+  return isSafeIntegerValue(value) && value > 0;
+}
+
+function invalidPersistedTransaction(record: PersistedTransactionFinancialRecord, field: string): never {
+  const id = isSafeIntegerValue(record.id) ? ` ${record.id}` : '';
+  throw new Error(`Invalid persisted transaction${id}: ${field}.`);
+}
+
+/** Validates financial values read from SQLite; it never repairs or normalizes stored records. */
+export function validatePersistedTransaction<T extends PersistedTransactionFinancialRecord>(record: T): T {
+  if (!isPositiveSafeInteger(record.id)) invalidPersistedTransaction(record, 'id');
+  if (typeof record.clientId !== 'string' || !record.clientId.trim()) invalidPersistedTransaction(record, 'client ID');
+  if (!isPositiveSafeInteger(record.userId)) invalidPersistedTransaction(record, 'user ID');
+  if (!isPositiveSafeInteger(record.accountId)) invalidPersistedTransaction(record, 'account ID');
+  if (record.categoryId !== null && !isPositiveSafeInteger(record.categoryId)) invalidPersistedTransaction(record, 'category ID');
+  if (typeof record.date !== 'string' || !isValidTransactionDate(record.date)) invalidPersistedTransaction(record, 'date');
+  if (!isSafeIntegerValue(record.amount)) invalidPersistedTransaction(record, 'amount must use safe integer monetary values');
+  const amount = record.amount;
+  const type = record.type;
+  if (type !== 'income' && type !== 'expense' && type !== 'transfer') invalidPersistedTransaction(record, 'type');
+  if (type === 'income' && (amount <= 0 || amount > MAX_PKR_AMOUNT)) invalidPersistedTransaction(record, 'income amount');
+  if (type === 'expense' && (amount >= 0 || amount < -MAX_PKR_AMOUNT)) invalidPersistedTransaction(record, 'expense amount');
+  if (type === 'transfer' && amount === 0) invalidPersistedTransaction(record, 'transfer amount');
+  return record;
+}

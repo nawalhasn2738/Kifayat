@@ -3,11 +3,10 @@ import { LOCAL_USER_ID } from '@/lib/db/seed';
 import { accounts, categories, transactions } from '@/lib/db/schema';
 import type { AppDatabase } from '@/lib/db/types';
 import type { Transaction } from '@/lib/types';
-import { validateTransactionInput, type TransactionInput } from '@/lib/validation/transaction';
+import { validatePersistedTransaction, validateTransactionInput, type TransactionInput } from '@/lib/validation/transaction';
 
 export type TransactionRepositoryDependencies = {
   userId: number;
-  createClientId: () => string;
   now: () => Date;
 };
 
@@ -18,6 +17,10 @@ export type OverdraftConfirmation = {
 
 export type TransactionMutationOptions = {
   overdraftConfirmation?: OverdraftConfirmation;
+};
+
+export type TransactionCreationOptions = TransactionMutationOptions & {
+  clientId: string;
 };
 
 export class OverdraftConfirmationRequiredError extends Error {
@@ -36,14 +39,36 @@ export class OverdraftConfirmationRequiredError extends Error {
 
 const productionDependencies: TransactionRepositoryDependencies = {
   userId: LOCAL_USER_ID,
-  createClientId: () => `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   now: () => new Date(),
 };
 const legacyTransferMutationError = 'Legacy transfers cannot be updated or deleted until transfer support exists.';
+const idempotencyConflictError = 'This transaction request ID was already used for different transaction details.';
+const unsafeBalanceError = 'Account balance arithmetic requires JavaScript safe integers.';
+const futureTransactionDateError = 'Future-dated income and expense transactions are not supported.';
+
+function checkedBalanceAdd(balance: number, effect: number) {
+  if (!Number.isSafeInteger(balance) || !Number.isSafeInteger(effect)) throw new Error(unsafeBalanceError);
+  const result = balance + effect;
+  if (!Number.isSafeInteger(result)) throw new Error(unsafeBalanceError);
+  return result;
+}
+
+function checkedBalanceSubtract(balance: number, effect: number) {
+  if (!Number.isSafeInteger(balance) || !Number.isSafeInteger(effect)) throw new Error(unsafeBalanceError);
+  const result = balance - effect;
+  if (!Number.isSafeInteger(result)) throw new Error(unsafeBalanceError);
+  return result;
+}
+
+function requireSupportedEffectiveDate(date: string, now: Date, existingDate?: string) {
+  if (new Date(date).getTime() > now.getTime() && date !== existingDate) {
+    throw new Error(futureTransactionDateError);
+  }
+}
 
 
 const selection = {
-  id: transactions.id, clientId: transactions.clientId, date: transactions.date,
+  id: transactions.id, clientId: transactions.clientId, userId: transactions.userId, date: transactions.date,
   amount: transactions.amount, type: transactions.type, merchant: transactions.merchant,
   description: transactions.description, isAnomaly: transactions.isAnomaly,
   categoryId: categories.id, categoryName: categories.name,
@@ -63,7 +88,8 @@ export function createTransactionRepository<TRunResult>(
   type Selected = Awaited<ReturnType<typeof selectBase>>[number];
 
   function mapTransaction(row: Selected): Transaction {
-    return { id: row.id, clientId: row.clientId, date: row.date, amount: row.amount, type: row.type,
+    const valid = validatePersistedTransaction(row);
+    return { id: valid.id, clientId: valid.clientId, date: valid.date, amount: valid.amount, type: valid.type,
       merchant: row.merchant, description: row.description, isAnomaly: row.isAnomaly,
       category: row.categoryId ? { id: row.categoryId, name: row.categoryName! } : null,
       account: { id: row.accountId, name: row.accountName, type: row.accountType } };
@@ -72,6 +98,11 @@ export function createTransactionRepository<TRunResult>(
   async function listTransactions(limit = 100) {
     return (await selectBase().where(eq(transactions.userId, dependencies.userId))
       .orderBy(desc(transactions.date)).limit(limit)).map(mapTransaction);
+  }
+
+  async function listAllTransactions() {
+    return (await selectBase().where(eq(transactions.userId, dependencies.userId))
+      .orderBy(desc(transactions.date), desc(transactions.id))).map(mapTransaction);
   }
 
   async function getTransaction(id: number) {
@@ -93,16 +124,36 @@ export function createTransactionRepository<TRunResult>(
     throw new OverdraftConfirmationRequiredError(account.id, account.name, projectedBalance);
   }
 
-  async function createTransaction(raw: TransactionInput, options: TransactionMutationOptions = {}) {
+  function isIdenticalCreation(existing: typeof transactions.$inferSelect, input: TransactionInput, signedAmount: number) {
+    return existing.accountId === input.accountId
+      && existing.categoryId === input.categoryId
+      && existing.date === new Date(input.date).toISOString()
+      && existing.amount === signedAmount
+      && existing.type === input.type
+      && existing.merchant === (input.merchant || null)
+      && existing.description === (input.description || null);
+  }
+
+  async function createTransaction(raw: TransactionInput, options: TransactionCreationOptions) {
     const input = validateTransactionInput(raw);
+    if (!options.clientId.trim()) throw new Error('A transaction request ID is required.');
     const signedAmount = input.type === 'income' ? input.amount : -input.amount;
-    const clientId = dependencies.createClientId();
     const insertedId = database.transaction((tx) => {
       const [account] = tx.select({ id: accounts.id, name: accounts.name, balance: accounts.balance }).from(accounts)
         .where(and(eq(accounts.id, input.accountId), eq(accounts.userId, dependencies.userId))).limit(1).all();
       if (!account) throw new Error('The selected account no longer exists.');
-      if (input.type === 'expense') requireOverdraftConfirmation(account, account.balance + signedAmount, options);
-      const [created] = tx.insert(transactions).values({ clientId, userId: dependencies.userId,
+      const [existing] = tx.select().from(transactions).where(eq(transactions.clientId, options.clientId)).limit(1).all();
+      if (existing) {
+        const validExisting = validatePersistedTransaction(existing);
+        if (validExisting.userId !== dependencies.userId || !isIdenticalCreation(validExisting, input, signedAmount)) {
+          throw new Error(idempotencyConflictError);
+        }
+        return existing.id;
+      }
+      requireSupportedEffectiveDate(input.date, dependencies.now());
+      const projectedBalance = checkedBalanceAdd(account.balance, signedAmount);
+      if (input.type === 'expense') requireOverdraftConfirmation(account, projectedBalance, options);
+      const [created] = tx.insert(transactions).values({ clientId: options.clientId, userId: dependencies.userId,
         accountId: input.accountId, categoryId: input.categoryId, date: new Date(input.date).toISOString(), amount: signedAmount,
         type: input.type, merchant: input.merchant || null, description: input.description || null })
         .returning({ id: transactions.id }).all();
@@ -120,23 +171,27 @@ export function createTransactionRepository<TRunResult>(
       const [existing] = tx.select().from(transactions)
         .where(and(eq(transactions.id, id), eq(transactions.userId, dependencies.userId))).limit(1).all();
       if (!existing) throw new Error('Transaction not found.');
-      const [existingAccount] = tx.select({ id: accounts.id }).from(accounts)
+      validatePersistedTransaction(existing);
+      const [existingAccount] = tx.select({ id: accounts.id, balance: accounts.balance }).from(accounts)
         .where(and(eq(accounts.id, existing.accountId), eq(accounts.userId, dependencies.userId))).limit(1).all();
       if (!existingAccount) throw new Error('Transaction account ownership is inconsistent.');
       if (existing.type === 'transfer') throw new Error(legacyTransferMutationError);
+      requireSupportedEffectiveDate(input.date, dependencies.now(), existing.date);
       const [account] = tx.select({ id: accounts.id, name: accounts.name, balance: accounts.balance }).from(accounts)
         .where(and(eq(accounts.id, input.accountId), eq(accounts.userId, dependencies.userId))).limit(1).all();
       if (!account) throw new Error('The selected account no longer exists.');
       const signedAmount = input.type === 'income' ? input.amount : -input.amount;
-      const projectedBalance = account.balance + signedAmount
-        + (existing.accountId === input.accountId ? -existing.amount : 0);
+      const reversedExistingBalance = checkedBalanceSubtract(existingAccount.balance, existing.amount);
+      const projectedBalance = existing.accountId === input.accountId
+        ? checkedBalanceAdd(reversedExistingBalance, signedAmount)
+        : checkedBalanceAdd(account.balance, signedAmount);
       if (input.type === 'expense') requireOverdraftConfirmation(account, projectedBalance, options);
-      tx.run(sql`UPDATE accounts SET balance = balance - ${existing.amount} WHERE id = ${existing.accountId}`);
+      tx.update(accounts).set({ balance: reversedExistingBalance }).where(eq(accounts.id, existing.accountId)).run();
       tx.update(transactions).set({ accountId: input.accountId, categoryId: input.categoryId, date: new Date(input.date).toISOString(),
         amount: signedAmount, type: input.type, merchant: input.merchant || null,
         description: input.description || null, updatedAt: dependencies.now().toISOString() })
         .where(eq(transactions.id, id)).run();
-      tx.run(sql`UPDATE accounts SET balance = balance + ${signedAmount} WHERE id = ${input.accountId}`);
+      tx.update(accounts).set({ balance: projectedBalance }).where(eq(accounts.id, input.accountId)).run();
       return id;
     });
     return getTransaction(result);
@@ -147,14 +202,16 @@ export function createTransactionRepository<TRunResult>(
       const [existing] = tx.select().from(transactions)
         .where(and(eq(transactions.id, id), eq(transactions.userId, dependencies.userId))).limit(1).all();
       if (!existing) throw new Error('Transaction not found.');
-      const [existingAccount] = tx.select({ id: accounts.id }).from(accounts)
+      validatePersistedTransaction(existing);
+      const [existingAccount] = tx.select({ id: accounts.id, balance: accounts.balance }).from(accounts)
         .where(and(eq(accounts.id, existing.accountId), eq(accounts.userId, dependencies.userId))).limit(1).all();
       if (!existingAccount) throw new Error('Transaction account ownership is inconsistent.');
       if (existing.type === 'transfer') throw new Error(legacyTransferMutationError);
+      const reversedExistingBalance = checkedBalanceSubtract(existingAccount.balance, existing.amount);
       tx.delete(transactions).where(eq(transactions.id, id)).run();
-      tx.run(sql`UPDATE accounts SET balance = balance - ${existing.amount} WHERE id = ${existing.accountId}`);
+      tx.update(accounts).set({ balance: reversedExistingBalance }).where(eq(accounts.id, existingAccount.id)).run();
     });
   }
 
-  return { listTransactions, getTransaction, createTransaction, updateTransaction, deleteTransaction };
+  return { listTransactions, listAllTransactions, getTransaction, createTransaction, updateTransaction, deleteTransaction };
 }

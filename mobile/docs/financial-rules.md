@@ -60,7 +60,9 @@ This specification covers PKR amounts, transactions, balances, transfers, saving
 4. Monetary values are stored as integers. Display formatting is separate from storage and must preserve negative signs where financially meaningful.
 5. Currency conversion and multi-currency accounts are unsupported in the initial release.
 
-**Current verified behavior:** SQLite uses integer monetary columns. Transaction and affordability inputs use the shared strict `parsePkrAmount` boundary, capped at PKR 2,147,483,647; malformed, signed, decimal, exponent, zero, and out-of-range inputs are rejected without truncation. `formatPKR` still applies `Math.abs`, which can hide negative signs in totals and affordability values.
+**Current verified behavior:** SQLite uses integer monetary columns. Transaction and affordability price inputs use the shared strict `parsePkrAmount` boundary, capped at PKR 2,147,483,647; malformed, signed, decimal, exponent, zero, and out-of-range inputs are rejected without truncation. Affordability planning horizons are whole numbers from 1 through 120 months; malformed, fractional, non-finite, unsafe, and out-of-range values are rejected. `formatPKR` still applies `Math.abs`, which can hide negative signs in totals and affordability values.
+
+**Current future-date policy:** the repository rejects new future-dated income and expense transactions and edits that newly make an income or expense future-dated, using canonical UTC instants and its injected current-time source. Existing future-dated rows are preserved; an idempotent replay may return an existing row, an unchanged-date edit remains supported, and deletion uses the existing atomic balance reversal. Scheduled transactions are unsupported. Opening-balance semantics remain separate and unresolved.
 
 ### 3.2 Income and expense creation
 

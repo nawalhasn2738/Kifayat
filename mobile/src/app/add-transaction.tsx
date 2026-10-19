@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { ErrorState, LoadingState, PrimaryButton, Screen, SectionTitle, palette, styles as ui } from '@/components/finance-ui';
-import { api, OverdraftConfirmationRequiredError, type TransactionMutationOptions } from '@/lib/api';
+import { api, createTransactionRequestId, OverdraftConfirmationRequiredError, type TransactionMutationOptions } from '@/lib/api';
 import { useApi } from '@/hooks/use-api';
 import { parsePkrAmount, type TransactionInput } from '@/lib/validation/transaction';
 
@@ -23,6 +23,7 @@ export default function AddTransactionScreen() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
+  const creationRequestId = useRef<string | null>(null);
 
   useEffect(() => {
     if (!data?.transaction || initialized) return;
@@ -46,7 +47,7 @@ export default function AddTransactionScreen() {
       : category.parent !== 'Income' && category.parent !== 'Transfer',
   );
 
-  function showOverdraftConfirmation(input: TransactionInput, error: OverdraftConfirmationRequiredError) {
+  function showOverdraftConfirmation(input: TransactionInput, error: OverdraftConfirmationRequiredError, requestId: string | null) {
     Alert.alert(
       'Confirm overdraft',
       `${error.accountName} would have a projected balance of PKR ${error.projectedBalance.toLocaleString('en-PK')}. Confirming will allow this account to go below zero.`,
@@ -57,22 +58,25 @@ export default function AddTransactionScreen() {
           style: 'destructive',
           onPress: () => void submitTransaction(input, {
             overdraftConfirmation: { accountId: error.accountId, projectedBalance: error.projectedBalance },
-          }),
+          }, requestId),
         },
       ],
       { cancelable: false },
     );
   }
 
-  async function submitTransaction(input: TransactionInput, options?: TransactionMutationOptions) {
+  async function submitTransaction(input: TransactionInput, options?: TransactionMutationOptions, requestId: string | null = null) {
     try {
       if (editId) await api.updateTransaction(editId, input, options);
-      else await api.createTransaction(input, options);
+      else {
+        if (!requestId) throw new Error('A transaction request ID is required.');
+        await api.createTransaction(input, { ...options, clientId: requestId });
+      }
       setSaving(false);
       router.back();
     } catch (caught) {
       if (caught instanceof OverdraftConfirmationRequiredError) {
-        showOverdraftConfirmation(input, caught);
+        showOverdraftConfirmation(input, caught, requestId);
         return;
       }
       setFormError(caught instanceof Error ? caught.message : 'Could not save transaction.');
@@ -100,7 +104,8 @@ export default function AddTransactionScreen() {
         merchant: merchant.trim() || null,
         description: description.trim() || null,
       };
-      await submitTransaction(input);
+      const requestId = editId ? null : (creationRequestId.current ??= createTransactionRequestId());
+      await submitTransaction(input, undefined, requestId);
     } catch (caught) {
       setFormError(caught instanceof Error ? caught.message : 'Could not save transaction.');
       setSaving(false);

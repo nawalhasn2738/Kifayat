@@ -1,5 +1,5 @@
 import { listAccounts, listCategories } from '@/lib/repositories/catalog';
-import { OverdraftConfirmationRequiredError, type TransactionMutationOptions } from '@/lib/repositories/transactions-core';
+import { OverdraftConfirmationRequiredError, type TransactionCreationOptions, type TransactionMutationOptions } from '@/lib/repositories/transactions-core';
 import { createTransaction, deleteTransaction, getTransaction, listTransactions, updateTransaction } from '@/lib/repositories/transactions';
 import { getAffordability, getForecast, getRisk, getSummary } from '@/lib/services/finance';
 import type { TransactionInput } from '@/lib/validation/transaction';
@@ -10,7 +10,7 @@ export const api = {
   summary: getSummary, risk: getRisk, forecast: getForecast, categories: listCategories, accounts: listAccounts,
   transactions: async (_page = 1, pageSize = 100) => ({ items: await listTransactions(pageSize), total: (await listTransactions(5000)).length, page: 1, pageSize }),
   transaction: async (id: number) => { const tx = await getTransaction(id); if (!tx) throw new Error('Transaction not found.'); return tx; },
-  createTransaction: (input: TransactionInput, options?: TransactionMutationOptions) => createTransaction(input, options),
+  createTransaction: (input: TransactionInput, options: TransactionCreationOptions) => createTransaction(input, options),
   updateTransaction: (id: number, input: TransactionInput, options?: TransactionMutationOptions) => updateTransaction(id, input, options),
   deleteTransaction,
   affordability: getAffordability,
@@ -23,5 +23,6 @@ export const api = {
   },
 };
 export { OverdraftConfirmationRequiredError };
-export type { TransactionMutationOptions };
+export type { TransactionCreationOptions, TransactionMutationOptions };
+export const createTransactionRequestId = () => `local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 export const formatPKR = (value: number) => `PKR ${Math.abs(Math.round(value)).toLocaleString('en-PK')}`;

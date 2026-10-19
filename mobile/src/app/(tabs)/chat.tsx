@@ -36,6 +36,7 @@ export default function ChatScreen() {
       await saveMessage(chatId, 'user', trimmed);
       const response = await api.chat(next.map(({ role, content: text }) => ({ role, content: text })));
       await saveMessage(chatId, 'assistant', response.text);
+
       setMessages((current) => [...current, { id: `${++idSequence.current}-a`, role: 'assistant', content: response.text }]);
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Chat failed'); }
     finally { setLoading(false); setTimeout(() => list.current?.scrollToEnd({ animated: true }), 50); }
