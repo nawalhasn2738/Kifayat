@@ -19,6 +19,8 @@ Phase 0 established the protected mobile SQLite/Drizzle baseline while retaining
 
 This is a reliability foundation for supported income and expense workflows, not a claim that every planned financial feature or production runtime environment is complete.
 
+Phase 3 adds the approved `Asia/Karachi` reporting calendar, a nullable per-user financial-history start with confirmation/correction audit records, and forecast readiness based on the three immediately preceding complete reporting months. These capabilities are implemented and covered by host-side tests. The user-facing history-start confirmation, correction, and recovery workflow is still missing, and Expo SQLite behavior has not been verified on an emulator or physical device.
+
 ## Financial data integrity
 
 Supported income and expense mutations currently enforce these invariants:
@@ -50,7 +52,7 @@ npm run lint
 npm run check
 ```
 
-The current verified local baseline is 74 passing tests on Windows x64 with Node.js 24.14.0 and npm 11.9.0. It includes transaction, rollback, ownership, idempotency, overdraft, future-date, persisted-row, reconciliation, reporting, affordability, and database-contract coverage. The test command uses `--test-isolation=none` as a workaround for a local `spawn EPERM` restriction. This baseline does not establish Ubuntu/Node 22 CI portability or Expo SQLite device/emulator parity.
+On October 20, 2026, running `npm test` from `mobile/` completed with 146 passing tests and 0 failures. The host-side suite covers transaction and rollback behavior, ownership, idempotency, overdraft handling, persisted-row validation, reporting calendars, migrations, financial-history state and commands, and forecast readiness. It uses Node SQLite and `better-sqlite3`; it does not prove Expo SQLite emulator/device compatibility. Mobile typecheck and lint also passed. Root/web test, typecheck, and lint commands could not run in that audit environment because the root dependencies were not installed, and no dependencies were installed to change that state.
 
 ## Repository structure
 
@@ -63,6 +65,8 @@ The current verified local baseline is 74 passing tests on Windows x64 with Node
 - `mobile/tests/` — validation, migration-contract, database-contract, and repository integration tests.
 - `mobile/docs/` — approved financial rules, mutation audits, gap analysis, and SQLite test strategy.
 - `src/`, `prisma/`, and related root files — retained Next.js/Prisma backend and server-side services.
+
+The two applications do not share a live database. Mobile uses its app-sandboxed `kifayat.db`; web and its AI tools use the separately configured Prisma database. Cross-device synchronization and automatic import between them are not implemented.
 
 ## Development workflow
 
@@ -89,17 +93,21 @@ The following work is not complete:
 
 - transfers need an approved paired-leg or dedicated transfer representation and migration;
 - explicit opening balances require a reviewed migration informed by reconciliation results;
-- forecast windows need complete consecutive months, zero-filled known-complete months, and an insufficient-history contract;
-- the reporting timezone and category-applicability policy remain undecided;
+- the financial-history and forecast-readiness services exist, but mobile has no user-facing confirmation, correction, or missing-profile recovery screen;
+- category-applicability policy and enforcement remain unresolved;
 - existing legacy future-dated rows can still make stored balances differ from cutoff-filtered reporting actuals;
 - signed balance/availability formatting still needs improvement because the shared formatter uses absolute values;
 - refunds, pending transactions, and soft deletion remain unsupported;
 - seed and chat repositories do not yet have full integration/rollback coverage, and chat message ownership requires separate hardening;
 - React Native overdraft-dialog interactions do not yet have automated component tests;
-- Ubuntu/Node 22 CI execution and Expo SQLite device/emulator parity remain unverified.
+- the mobile checks are not part of the current GitHub Actions workflow;
+- root/web checks were not runnable in the latest audit environment because root dependencies were absent;
+- Expo SQLite device/emulator parity, backup/restore, authentication, and production readiness remain unverified or unimplemented.
+
+Mobile AI generation is also not yet grounded in the device's SQLite ledger. The current backend chat tools read the separate web Prisma database for a hard-coded demo user; no mobile-to-web financial synchronization exists.
 
 Optional AI generation requires a separately operated secure HTTPS backend. Only that backend may hold provider API keys; no secret should be placed in an `EXPO_PUBLIC_*` variable.
 
 ## Roadmap
 
-Phase 3 should resolve the remaining policy-dependent work without weakening the Phase 1/2 invariants: choose a reporting timezone and forecast-history contract, then implement forecast readiness and calendar-window behavior; design migration-safe transfer and opening-balance models; approve category applicability; improve signed financial formatting; and expand CI/device verification.
+Remaining Phase 3 work should expose the implemented history-start workflow in the mobile UI, qualify migrations and behavior on Expo SQLite, add mobile checks to CI, and reconcile release documentation. Transfer and opening-balance models, category applicability, signed financial formatting, synchronization, backup/recovery, and authenticated AI access remain separate future decisions.

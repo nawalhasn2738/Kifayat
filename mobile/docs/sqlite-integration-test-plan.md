@@ -8,7 +8,7 @@ Kifayat uses three complementary layers:
 2. Repository integration tests through Drizzle and an injected in-memory database.
 3. Expo SQLite device/emulator tests through the production runtime.
 
-Layers 1 and 2 are active on the current Windows environment. Layer 3 remains unverified. The current local baseline is 32 passing tests on Windows x64, Node 24.14.0, and npm 11.9.0. This does not prove Ubuntu/Node 22, CI, or Expo parity.
+Layers 1 and 2 are active on the current Windows environment. Layer 3 remains unverified. On October 20, 2026, `npm test` from `mobile/` passed 146 host-side tests with 0 failures. This does not prove CI portability or Expo SQLite emulator/device parity.
 
 ## 2. Current evidence
 
@@ -24,7 +24,7 @@ Layers 1 and 2 are active on the current Windows environment. Layer 3 remains un
 - Transaction tests cover signs, create/update/delete balance effects, account movement, ownership, rejection safety, overdraft confirmation/staleness, legacy-transfer guards, and forced rollback for all three mutations.
 - Production wrappers continue using the Expo-backed singleton.
 - Chat has an injectable core, and seed uses the shared driver-neutral database type with a synchronous transaction callback; neither currently has integration coverage.
-- `npm test` reports 32 passed and 0 failed. Type-check and lint pass.
+- `npm test` reports 146 passed and 0 failed. Typecheck and lint pass.
 
 The test command is `tsx --test --test-isolation=none tests/**/*.test.ts tests/**/*.test.mjs`. Disabling isolation is the local workaround for observed `spawn EPERM`; it is not evidence of CI portability.
 
@@ -95,8 +95,8 @@ The shared `AppDatabase` type is schema-aware and driver-neutral. Repository cor
 - Disabled test isolation requires avoiding shared global state.
 - Repository tests currently cover catalog and transaction cores, not chat or seed.
 - UI overdraft behavior is statically verified and type-checked but not component-tested.
-- Category applicability, idempotency, and reporting timezone remain policy decisions.
-- Transfers, opening-balance migrations, savings, forecasts, refunds, and signed formatting remain later financial work.
+- Category applicability remains a policy decision. The `Asia/Karachi` reporting timezone and forecast-readiness contract are approved and implemented in the host-tested service path. Mobile transaction creation idempotency is implemented for client request IDs; cross-device synchronization and an equivalent contract for the separate web API remain undefined.
+- Transfers, opening-balance migrations, refunds, signed formatting, history-start UI, and device qualification remain later work. Mobile savings use income minus expenses and exclude transfers.
 - Chat message listing/saving lacks independent conversation-ownership validation.
 
 ## 8. Acceptance gates
@@ -108,7 +108,7 @@ The shared `AppDatabase` type is schema-aware and driver-neutral. Repository cor
 - [x] Catalog repository behavior and reconciliation pass in memory.
 - [x] Supported transaction behavior and create/update/delete rollback pass in memory.
 - [x] Overdraft repository contract and legacy-transfer guards pass in memory.
-- [x] Current local baseline reports 32 passing tests; type-check and lint pass.
+- [x] Current host-side baseline reports 146 passing tests; typecheck and lint pass.
 - [ ] Ubuntu/Node 22 installation, native loading, and suite execution pass.
 - [ ] Cross-platform mobile CI is configured and passing.
 - [ ] Seed and chat integration/rollback coverage passes.
@@ -117,4 +117,4 @@ The shared `AppDatabase` type is schema-aware and driver-neutral. Repository cor
 
 ## 9. Deferred cases
 
-Full transfer behavior, opening-balance migration, category applicability, stable idempotency, savings/reporting corrections, forecasts, refunds, pending/deleted semantics, signed formatting, health-score refinements, and chat ownership remain explicitly deferred. Their absence does not make existing host-SQLite tests cover those behaviors.
+Full transfer behavior, opening-balance migration, category applicability, cross-device synchronization, refunds, pending/deleted semantics, signed formatting, history-start UI, health-score refinements, and chat ownership remain explicitly deferred. Mobile income-minus-expense savings, transfer exclusion, client-request-ID creation idempotency, and forecast readiness are implemented in host-tested service paths; their web equivalents are not implied. Host-side coverage does not establish Expo SQLite device behavior.

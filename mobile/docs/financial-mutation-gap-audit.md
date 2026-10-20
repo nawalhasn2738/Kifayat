@@ -2,7 +2,7 @@
 
 ## Scope
 
-This audit distinguishes completed Phase 1 safety work from later financial features. Evidence is based on current source and the Windows x64 / Node 24.14.0 / npm 11.9.0 baseline of 32 passing tests. Passing tests do not imply complete coverage, Linux portability, or Expo SQLite parity.
+This audit began as a Phase 1 record and has been reconciled with the current mobile implementation. On October 20, 2026, `npm test` from `mobile/` passed 146 host-side tests with 0 failures. Passing Node SQLite and better-sqlite3 tests do not imply complete UI coverage, CI portability, or Expo SQLite device parity.
 
 ## Status matrix
 
@@ -14,15 +14,15 @@ This audit distinguishes completed Phase 1 safety work from later financial feat
 | 4 | Balance reconciliation and opening balances | **PARTIALLY IMPLEMENTED** | Read-only, user-scoped reconciliation reports stored balance, effect total, candidate opening balance, and discrepancy without writes. No explicit opening-balance field or migration exists. |
 | 5 | Atomic transfers | **DEFERRED** | Current schema cannot represent paired effects. New transfer mutations reject; legacy transfer update/delete also reject without writes. Representation and migration remain future work. |
 | 6 | Explicit overdraft confirmation | **IMPLEMENTED; UI TEST COVERAGE INCOMPLETE** | Repository rechecks authoritative projection inside its transaction and binds confirmation to exact account/projection. API/UI supports Cancel, Confirm, stale re-prompt, and duplicate prevention. Repository tests pass; Alert interactions lack component tests. |
-| 7 | Savings equals income minus expenses | **NOT IMPLEMENTED** | Finance service still derives savings from negative transfer rows. Correct reporting belongs to a later calculation phase. |
+| 7 | Savings equals income minus expenses | **IMPLEMENTED AND TESTED** | The mobile finance service calculates income minus expenses and excludes transfers. Forecast readiness separately zero-fills qualifying empty history months. The legacy web helper still derives its separate savings figure from negative transfers. |
 | 8 | Refund handling | **DEFERRED** | Refunds are explicitly unsupported and have no mutation path. Future linkage and reporting policy remain undefined. |
-| 9 | Three complete forecast months and empty-month handling | **NOT IMPLEMENTED** | Current service uses populated buckets and may include the current month; no insufficient-history result exists. Reporting timezone must be approved first. |
+| 9 | Three complete forecast months and empty-month handling | **IMPLEMENTED AND HOST-TESTED; UI INCOMPLETE** | The readiness service uses the three immediately preceding complete Karachi months, zero-fills qualifying post-start empty months, excludes the partial current month, and returns `forecast: null` with stable reasons when unavailable. Users still lack the history-start confirmation/correction/recovery UI needed to make the workflow usable end to end. |
 | 10 | Safe income/expense deletion | **IMPLEMENTED AND TESTED** | UI confirms deletion; repository hard-deletes and reverses the stored effect atomically. Forced failure proves rollback. Legacy transfers reject. |
 | 11 | Ownership and cross-user isolation | **IMPLEMENTED AND TESTED** | Create, update, and delete enforce owned accounts; inconsistent legacy rows reject before effects. |
 | 12 | Category validity | **POLICY DECISION REQUIRED** | FK supports existence, but no authoritative applicability field exists. UI `parent` conventions are not repository policy. |
 | 13 | Mutation rollback | **IMPLEMENTED AND TESTED** | Deterministic create, update, and delete failures prove complete rollback in the Windows better-sqlite3 environment. Seed rollback remains untested. |
 | 14 | Signed formatting | **NOT IMPLEMENTED** | Shared formatter still applies `Math.abs`; signed presentation requires later correction. |
-| 15 | Idempotent retries | **POLICY DECISION REQUIRED** | Unique generated client IDs do not provide stable retry identity. |
+| 15 | Idempotent transaction creation | **IMPLEMENTED AND TESTED FOR THE CURRENT MOBILE CREATE FLOW** | A non-empty client request ID identifies the create attempt. Identical reuse returns the existing row without another balance effect; conflicting or cross-user reuse rejects. Cross-device synchronization and the separate web API remain outside this contract. |
 | 16 | Chat conversation ownership | **NOT IMPLEMENTED** | Message read/write still does not independently validate conversation ownership; this remains separate security work. |
 
 ## Completed Phase 1 foundation
@@ -37,25 +37,25 @@ This audit distinguishes completed Phase 1 safety work from later financial feat
 
 ## Highest remaining risks
 
-1. Savings and forecast outputs do not yet implement the approved reporting rules.
+1. History-start and forecast-readiness services are implemented, but their user-facing confirmation/correction/recovery workflow and Expo SQLite device verification remain incomplete.
 2. Category applicability has no approved authoritative model.
 3. Opening balances and database constraints require reviewed migrations and legacy-data handling.
-4. Stable retry/idempotency semantics remain undefined.
+4. Mobile create idempotency is implemented, but cross-device synchronization and any equivalent web API contract remain undefined.
 5. Cross-platform CI and Expo runtime parity remain unverified.
 
 ## Sequenced future roadmap
 
-### 1. Approve category applicability and idempotency policies
+### 1. Approve category applicability and broader synchronization policies
 
-Define authoritative category typing and a stable retry identity before enforcement or migration.
+Define authoritative category typing and any cross-device synchronization identity. Preserve the implemented mobile client-request-ID create contract.
 
 ### 2. Design transfers and opening-balance migrations
 
 Choose a paired-leg or dedicated transfer model, classify legacy data, preserve stored balances, and use reconciliation evidence before migration.
 
-### 3. Correct savings, signed formatting, and reporting windows
+### 3. Complete history-start UI and signed formatting
 
-After approving a reporting timezone, implement income-minus-expense savings, transfer exclusion, three complete consecutive months, empty-month zero filling, and insufficient-history results.
+Expose the implemented history-start workflow without weakening the three-complete-month, empty-month, and `forecast: null` contract. Then correct signed balance and availability presentation under a separately approved formatting policy.
 
 ### 4. Expand integration and platform verification
 
@@ -67,4 +67,4 @@ Enforce chat conversation ownership; later specify refunds, pending states, soft
 
 ## Next recommended action
 
-Perform a documentation-reviewed Phase 1 closure, then move to Phase 2 without expanding Phase 1 into transfer, opening-balance, or reporting implementation. Preserve the documented Windows-only and UI-test limitations in the handoff.
+For Phase 3, approve the reporting timezone and forecast-history contract before changing calendar windows. Keep transfers, opening balances, category applicability, refunds, and broader synchronization behavior unresolved until their separate policies and migration risks are reviewed.

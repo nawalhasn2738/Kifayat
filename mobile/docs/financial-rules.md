@@ -43,11 +43,11 @@ This specification covers PKR amounts, transactions, balances, transfers, saving
 - **Approved target:** `income - expenses` over the same reporting period.
 - Transfers are excluded from both sides of this calculation.
 - Goal contributions may be reported separately but must not be added to primary savings as income.
-- **Existing behavior:** savings is the sum of negative transfer amounts. Because supported UI/repository mutations cannot create transfers, this value normally remains zero.
+- **Current mobile behavior:** savings is income minus expenses within each populated monthly reporting bucket. Transfer rows are excluded from income, expenses, and primary savings. The retained web/Prisma reporting helper still derives its separate legacy savings figure from negative transfer rows; that behavior does not define the mobile ledger.
 
 ### Forecast
 
-- **Approved target:** An estimate based on the last three complete, consecutive calendar months, excluding the current partial month and excluding transfers.
+- **APPROVED target:** An estimate based on the three complete, consecutive `Asia/Karachi` calendar months immediately before the current month, excluding the current partial month and excluding transfers.
 - A historical average is not itself a forecast; the UI must label historical values and future estimates distinctly.
 
 ## 3. Approved financial rules
@@ -63,6 +63,8 @@ This specification covers PKR amounts, transactions, balances, transfers, saving
 **Current verified behavior:** SQLite uses integer monetary columns. Transaction and affordability price inputs use the shared strict `parsePkrAmount` boundary, capped at PKR 2,147,483,647; malformed, signed, decimal, exponent, zero, and out-of-range inputs are rejected without truncation. Affordability planning horizons are whole numbers from 1 through 120 months; malformed, fractional, non-finite, unsafe, and out-of-range values are rejected. `formatPKR` still applies `Math.abs`, which can hide negative signs in totals and affordability values.
 
 **Current future-date policy:** the repository rejects new future-dated income and expense transactions and edits that newly make an income or expense future-dated, using canonical UTC instants and its injected current-time source. Existing future-dated rows are preserved; an idempotent replay may return an existing row, an unchanged-date edit remains supported, and deletion uses the existing atomic balance reversal. Scheduled transactions are unsupported. Opening-balance semantics remain separate and unresolved.
+
+**Current creation-idempotency behavior:** each mobile create attempt supplies a non-empty client request ID. Reusing that ID with the same user and identical normalized transaction details returns the existing row without applying another balance effect. Reusing it for different details or another user is rejected. This is implemented and covered by repository integration tests; it does not imply cross-device synchronization or a retry contract for the separate web/Prisma transaction API.
 
 ### 3.2 Income and expense creation
 
@@ -162,19 +164,21 @@ difference = stored balance - expected balance
 
 ### Calendar periods
 
-1. Define reporting months using one documented local-calendar timezone policy.
+1. **APPROVED:** Define mobile reporting months in `Asia/Karachi` while retaining transaction timestamps as canonical UTC instants.
 2. Current-month totals cover the first day of the current month through the reporting time.
 3. Historical monthly values cover complete calendar months.
-4. Forecast history uses the three complete consecutive months immediately before the current month.
-5. Future-dated records are excluded from historical and current actual totals until their effective date.
+4. Reporting-month ranges are start-inclusive and end-exclusive: `[monthStart, nextMonthStart)`.
+5. **APPROVED:** Forecast history uses the three complete consecutive months immediately before the current month.
+6. Future-dated records are excluded from historical and current actual totals until their effective date.
 
-The exact timezone is deferred, but it must be chosen before date-boundary implementation and tests are approved.
+The named-timezone reporting-calendar utility is integrated into mobile monthly bucketing, current/previous-month selection, month-to-date categories, projection boundaries, and the separately authorized forecast-readiness service.
 
 ### Empty months
 
-- For a valid three-month window, a complete month with no matching transactions contributes zero.
-- Do not skip empty months and replace them with older populated months.
-- If less than three complete months exist since the user's finance history began, return an explicit insufficient-history indicator alongside any provisional estimate.
+- **APPROVED:** For a qualifying forecast window, a complete month after the confirmed financial-history start with no matching transactions contributes zero.
+- **APPROVED:** Do not skip qualifying empty months and replace them with older populated months; months before confirmed history begins and partial first months remain unavailable.
+- **APPROVED:** If fewer than three qualifying complete months exist, return structured `insufficient_history` metadata with `forecast: null`; do not present a provisional number as the official forecast.
+- **APPROVED:** Use stable reasons `history_start_unconfirmed`, `insufficient_complete_months`, and fail-closed `invalid_history_start`.
 
 ### Totals
 
@@ -188,7 +192,7 @@ The exact timezone is deferred, but it must be chosen before date-boundary imple
 
 ### Forecast
 
-The initial forecast may use a transparent mean and variation measure, provided that it:
+**APPROVED AND IMPLEMENTED SERVICE CONTRACT:** The initial forecast-readiness contract retains the transparent mean and variation measure and:
 
 - uses exactly the preceding three complete consecutive months;
 - includes zero-activity months;
@@ -197,7 +201,7 @@ The initial forecast may use a transparent mean and variation measure, provided 
 - identifies the output as an estimate;
 - documents the method in user-facing text.
 
-**Existing behavior:** the service uses the last three populated monthly buckets and may include the current partial month. Its category forecast is empty.
+**Current behavior:** the readiness service requires a valid confirmed `financialHistoryStartedAt` and exactly the three complete `Asia/Karachi` months immediately before the current reporting month. Qualifying empty months contribute zero, and the partial current month is excluded. Unconfirmed, invalid, or insufficient history returns typed readiness metadata with `forecast: null`; ready results retain the existing total mean-and-variation calculation. The category forecast remains empty. The history-start read, recovery, confirmation, and correction services exist, but no user-facing confirmation/correction/recovery workflow is currently wired into the mobile screens.
 
 ## 6. Data-integrity requirements
 
@@ -259,19 +263,19 @@ A future refund should link to its original expense, increase the receiving acco
 
 ## 8. Current-versus-target gaps
 
-| Area | Current behavior | Approved target behavior | Likely files affected | Required change | Risk or migration consideration |
+| Area | Current behavior | Target behavior and status | Likely files affected | Required change | Risk or migration consideration |
 |---|---|---|---|---|---|
 | Transfers | Schema/type mention `transfer`; UI and validator accept only income/expense; one account per row. Existing legacy transfer rows are read-only: update/delete reject them without writes. | Atomic source-to-destination movement, excluded from income/expense | `db/schema.ts`, migration files, transaction repository, validation, types, add/detail/list screens | Add linked two-leg or dedicated transfer representation and mutation flow | Existing raw transfer rows need classification; migration must preserve them |
 | Balance consistency | Stored balance is updated atomically alongside supported CRUD. Read-only reconciliation reports signed effects, candidate opening balance, and discrepancies without repair. | Opening balance plus active effects equals stored balance | Schema, migrations, account/transaction repositories, seed, tests | Preserve reconciliation and later add an approved opening-balance model | Candidate opening balance is diagnostic and may reflect missing history |
 | Opening balances | No field; seeded balances start at zero | Explicit integer opening balance for new and migrated accounts | Schema, migration, seed, account creation/import | Add only after auditing existing balance-versus-ledger differences | Preserve current stored balances; do not default existing accounts blindly |
 | Amount parsing | Shared strict parsing is used by transaction and affordability inputs; the maximum is PKR 2,147,483,647. | Reject the complete non-whole input without truncation | Add-transaction and planning screens, validation utilities, tests | Completed for current monetary input paths | Future monetary inputs must reuse the same boundary |
-| Savings | Sum of negative transfers; savings rate uses that value | Income minus expenses over the same period | Finance service, types, dashboard, tests | Replace primary savings definition; report contributions separately | Historical displayed savings figures will change |
-| Forecasts | Last three populated buckets, potentially including current month; empty category forecast | Previous three complete consecutive months, zero-filled gaps, insufficient-history state | Finance service, types, planning screen, tests | Build explicit month window and result status | Existing forecast values will change; timezone policy required |
+| Savings | Mobile reporting calculates income minus expenses within each populated `Asia/Karachi` monthly bucket and excludes transfers; the separate legacy web helper still uses negative transfer rows | Income minus expenses over the same period | Finance service, types, dashboard, tests | Mobile primary savings and approved calendar attribution are aligned; retain transfer exclusion | Web behavior remains separate |
+| Forecasts | Readiness uses the previous three complete Karachi months, zero-fills qualifying post-start empty months, excludes the partial current month, and returns `forecast: null` with stable reasons when unavailable; category forecast remains empty | Approved readiness contract is implemented at service level | Finance service, history-start/readiness services, types, planning screen, tests | Add the missing user-facing history-start workflow; category forecasting remains separate | Existing users cannot confirm readiness through the current UI |
 | Negative formatting | Shared formatter removes the sign with `Math.abs` | Preserve signs for balances/availability; use explicit sign only where presentation requires it | `lib/api.ts`, dashboard, planning, transaction screens | Separate signed money formatting from absolute transaction display | UI snapshots and user interpretation change |
 | Insufficient funds | Repository rechecks the projection in its SQLite transaction and requires exact account/projection confirmation; API/UI provides Cancel and Confirm. | Warn, require explicit confirmation, then allow | Add/edit screen, repository/domain mutation input, tests | Repository/API/UI flow completed | Dialog behavior lacks automated React Native component tests |
 | Category integrity | Positive/null ID validation; SQLite FK handles existence when enabled | Confirm category exists and is valid for type | Validation/domain repository and tests | Add repository validation before mutation | Category policy must be defined; legacy uncategorized rows remain valid |
 | Database constraints | Text types lack SQL `CHECK` constraints | Enforce stable invariants where practical | Schema and new migration | Add constraints only after compatibility review | SQLite table-rebuild migrations can risk data loss |
-| Tests | Contract smoke tests plus Drizzle repository integration tests use fresh in-memory databases. The Windows/Node 24 baseline is 32 passing tests. | Real SQLite mutation, rollback, calculation, boundary, and reconciliation tests | Mobile test setup and finance/repository tests | Continue later with seed/chat and Expo parity coverage | Ubuntu/Node 22 and Expo SQLite parity remain unverified |
+| Tests | On October 20, 2026, `npm test` from `mobile/` passed 146 host-side tests using disposable Node SQLite and better-sqlite3 databases. | Mutation, rollback, migration-chain, calculation, boundary, history-start, and readiness coverage | Mobile test setup and finance/repository tests | Continue with UI, CI, and Expo SQLite device coverage | Root/web checks and Expo SQLite parity remain unverified |
 
 ## 9. Implementation order for future mini-tasks
 
@@ -315,6 +319,8 @@ Steps 1-3 below are complete for the current Windows/Node 24 foundation: databas
 
 ### 6. Correct forecast windows and preserve reconciliation checks
 
+This policy and its service-level implementation were separately authorized after the original design review. The remaining work is the user-facing workflow and device/runtime qualification; no further schema or persisted-data change is implied here.
+
 - Use the previous three complete consecutive months.
 - Zero-fill complete empty months.
 - return an insufficient-history state where appropriate.
@@ -345,7 +351,7 @@ Opening-balance schema work should occur only after steps 1 and 2 establish safe
 
 Production applicability enforcement and create/update mismatch regression tests remain deferred until the policy is approved and existing seed/category data can be mapped safely. The current implementation evidence is summarized in **transaction-mutation-invariants-audit.md**; this decision remains unresolved and is not fixed by this documentation change.
 
-- The precise local-calendar timezone for reporting.
+- Any future change from the approved fixed `Asia/Karachi` mobile reporting timezone.
 - Account-type-specific overdraft policies.
 - Refund reporting across original and refund periods.
 - Pending/cleared balances.
