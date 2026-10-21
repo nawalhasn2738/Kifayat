@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import * as schema from '../src/lib/db/schema.ts';
+import { CATEGORY_APPLICABILITY_SEED, CATEGORY_SEED, seedLocalProfile } from '../src/lib/db/seed.ts';
 import { createHistoryStartStateService } from '../src/lib/services/history-start-state-core.ts';
 import {
   appendSyntheticMigration,
@@ -27,6 +28,35 @@ function baselineOnly(config) {
     migrations: { m0000: config.migrations.m0000 },
   };
 }
+
+function throughMigration(config, count) {
+  const entries = config.journal.entries.slice(0, count);
+  return {
+    journal: { ...config.journal, entries },
+    migrations: Object.fromEntries(entries.map((entry) => {
+      const key = `m${String(entry.idx).padStart(4, '0')}`;
+      return [key, config.migrations[key]];
+    })),
+  };
+}
+
+function insertCategories(sqlite, names = CATEGORY_SEED.map(([name]) => name)) {
+  const insert = sqlite.prepare('INSERT INTO categories (name) VALUES (?)');
+  for (const name of names) insert.run(name);
+}
+
+function applicabilityRows(sqlite) {
+  return sqlite.prepare(`
+    SELECT categories.name, category_applicability.transaction_type AS transactionType
+    FROM category_applicability
+    INNER JOIN categories ON categories.id = category_applicability.category_id
+    ORDER BY categories.name, category_applicability.transaction_type
+  `).all();
+}
+
+const approvedApplicability = CATEGORY_APPLICABILITY_SEED
+  .map(([name, transactionType]) => ({ name, transactionType }))
+  .sort((left, right) => left.name.localeCompare(right.name));
 
 function tableColumns(sqlite, table) {
   return sqlite.prepare(`PRAGMA table_info(${table})`).all().map((column) => ({
@@ -73,6 +103,168 @@ test('migration chain: fresh database applies every bundled migration through th
     assert.equal(tableExists(sqlite, 'transactions'), true);
     assert.equal(tableExists(sqlite, '__drizzle_migrations'), true);
     assert.deepEqual(migrationJournal(sqlite), config.journal.entries.map((entry) => entry.when));
+  });
+});
+
+test('category applicability: fresh migration and atomic seed create exactly the approved mappings', async () => {
+  await withDisposableDatabase(async (sqlite) => {
+    enableForeignKeys(sqlite);
+    await migrateWithExpoPath(sqlite);
+    assert.deepEqual(applicabilityRows(sqlite), []);
+
+    const database = drizzle(sqlite, { schema });
+    await seedLocalProfile(database);
+    await seedLocalProfile(database);
+
+    assert.deepEqual(applicabilityRows(sqlite), approvedApplicability);
+    assert.deepEqual(
+      sqlite.prepare(`
+        SELECT transaction_type AS transactionType, COUNT(*) AS count
+        FROM category_applicability
+        GROUP BY transaction_type
+        ORDER BY transaction_type
+      `).all(),
+      [{ transactionType: 'expense', count: 15 }, { transactionType: 'income', count: 2 }],
+    );
+    assert.deepEqual(
+      sqlite.prepare(`
+        SELECT name
+        FROM categories
+        WHERE id NOT IN (SELECT category_id FROM category_applicability)
+        ORDER BY name
+      `).all(),
+      [{ name: 'anomaly' }, { name: 'savings_transfer' }],
+    );
+  });
+});
+
+test('category applicability: existing 0001 catalogue upgrades without changing financial records', async () => {
+  await withDisposableDatabase(async (sqlite) => {
+    const current = loadBundledMigrationConfig();
+    await migrateWithExpoPath(sqlite, throughMigration(current, 2));
+    sqlite.prepare('INSERT INTO users (id, email, name) VALUES (1, ?, ?)').run('category-upgrade@example.test', 'Upgrade');
+    sqlite.prepare('INSERT INTO user_profiles (user_id, monthly_income, emergency_fund_target) VALUES (1, 5000, 9000)').run();
+    sqlite.prepare('INSERT INTO accounts (id, user_id, name, type, balance) VALUES (1, 1, ?, ?, 750)').run('Cash', 'cash');
+    insertCategories(sqlite, [...CATEGORY_SEED.map(([name]) => name), 'custom_existing']);
+    const salaryId = sqlite.prepare('SELECT id FROM categories WHERE name = ?').get('salary').id;
+    sqlite.prepare(`
+      INSERT INTO transactions (client_id, user_id, account_id, category_id, date, amount, type)
+      VALUES (?, 1, 1, ?, ?, 750, ?)
+    `).run('category-upgrade-existing', salaryId, '2026-01-01T00:00:00.000Z', 'income');
+    const before = {
+      profile: sqlite.prepare('SELECT * FROM user_profiles').all(),
+      accounts: sqlite.prepare('SELECT * FROM accounts').all(),
+      transactions: sqlite.prepare('SELECT * FROM transactions').all(),
+      categories: sqlite.prepare('SELECT * FROM categories ORDER BY id').all(),
+    };
+
+    await migrateWithExpoPath(sqlite, current);
+
+    assert.deepEqual(applicabilityRows(sqlite), approvedApplicability);
+    assert.deepEqual(sqlite.prepare('SELECT * FROM user_profiles').all(), before.profile);
+    const upgradedAccounts = sqlite.prepare('SELECT * FROM accounts').all();
+    assert.deepEqual(upgradedAccounts.map(({ opening_balance, ...account }) => account), before.accounts);
+    assert.ok(upgradedAccounts.every((account) => account.opening_balance === null));
+    assert.deepEqual(sqlite.prepare('SELECT * FROM transactions').all(), before.transactions);
+    assert.deepEqual(sqlite.prepare('SELECT * FROM categories ORDER BY id').all(), before.categories);
+    assert.deepEqual(
+      sqlite.prepare(`
+        SELECT name FROM categories
+        WHERE name IN ('anomaly', 'savings_transfer', 'custom_existing')
+          AND id NOT IN (SELECT category_id FROM category_applicability)
+        ORDER BY name
+      `).all(),
+      [{ name: 'anomaly' }, { name: 'custom_existing' }, { name: 'savings_transfer' }],
+    );
+  });
+});
+
+test('category applicability: every missing approved category aborts and rolls back 0002', async () => {
+  const current = loadBundledMigrationConfig();
+  const through0001 = throughMigration(current, 2);
+  for (const [missingName] of CATEGORY_APPLICABILITY_SEED) {
+    await withDisposableDatabase(async (sqlite) => {
+      await migrateWithExpoPath(sqlite, through0001);
+      sqlite.prepare('INSERT INTO users (id, email, name) VALUES (1, ?, ?)')
+        .run(`${missingName}@example.test`, 'Partial Catalogue');
+      const retainedNames = CATEGORY_SEED.map(([name]) => name).filter((name) => name !== missingName);
+      insertCategories(sqlite, retainedNames);
+      const categoriesBefore = sqlite.prepare('SELECT * FROM categories ORDER BY id').all();
+      const journalBefore = migrationJournal(sqlite);
+
+      await assert.rejects(
+        migrateWithExpoPath(sqlite, current),
+        (error) => error?.cause?.code === 'SQLITE_CONSTRAINT_CHECK',
+      );
+      assert.equal(tableExists(sqlite, 'category_applicability'), false, missingName);
+      assert.deepEqual(migrationJournal(sqlite), journalBefore, missingName);
+      assert.deepEqual(sqlite.prepare('SELECT * FROM categories ORDER BY id').all(), categoriesBefore, missingName);
+    });
+  }
+});
+
+test('category applicability: an existing user without a category catalogue fails closed', async () => {
+  await withDisposableDatabase(async (sqlite) => {
+    const current = loadBundledMigrationConfig();
+    await migrateWithExpoPath(sqlite, throughMigration(current, 2));
+    sqlite.prepare('INSERT INTO users (id, email, name) VALUES (1, ?, ?)').run('missing-catalogue@example.test', 'Missing Catalogue');
+    const journalBefore = migrationJournal(sqlite);
+
+    await assert.rejects(
+      migrateWithExpoPath(sqlite, current),
+      (error) => error?.cause?.code === 'SQLITE_CONSTRAINT_CHECK',
+    );
+    assert.equal(tableExists(sqlite, 'category_applicability'), false);
+    assert.deepEqual(migrationJournal(sqlite), journalBefore);
+    assert.equal(sqlite.prepare('SELECT COUNT(*) AS count FROM users').get().count, 1);
+  });
+});
+
+test('category applicability: constraints and category cascade match the approved schema', async () => {
+  await withDisposableDatabase(async (sqlite) => {
+    enableForeignKeys(sqlite);
+    await migrateWithExpoPath(sqlite);
+    const database = drizzle(sqlite, { schema });
+    await seedLocalProfile(database);
+    const salaryId = sqlite.prepare('SELECT id FROM categories WHERE name = ?').get('salary').id;
+
+    assert.deepEqual(
+      sqlite.prepare('PRAGMA table_info(category_applicability)').all()
+        .map((column) => ({ name: column.name, notNull: column.notnull, primaryKeyPosition: column.pk })),
+      [
+        { name: 'category_id', notNull: 1, primaryKeyPosition: 1 },
+        { name: 'transaction_type', notNull: 1, primaryKeyPosition: 2 },
+      ],
+    );
+    const [foreignKey] = sqlite.prepare('PRAGMA foreign_key_list(category_applicability)').all();
+    assert.deepEqual(
+      { table: foreignKey.table, from: foreignKey.from, to: foreignKey.to,
+        onUpdate: foreignKey.on_update, onDelete: foreignKey.on_delete },
+      { table: 'categories', from: 'category_id', to: 'id', onUpdate: 'NO ACTION', onDelete: 'CASCADE' },
+    );
+
+    assert.throws(
+      () => sqlite.prepare(`
+        INSERT INTO category_applicability (category_id, transaction_type)
+        VALUES (?, 'income')
+      `).run(salaryId),
+      /UNIQUE constraint failed/,
+    );
+    assert.throws(
+      () => sqlite.prepare(`
+        INSERT INTO category_applicability (category_id, transaction_type)
+        VALUES (?, 'refund')
+      `).run(salaryId),
+      /CHECK constraint failed/,
+    );
+
+    sqlite.prepare('DELETE FROM categories WHERE id = ?').run(salaryId);
+    assert.equal(
+      sqlite.prepare('SELECT COUNT(*) AS count FROM category_applicability WHERE category_id = ?').get(salaryId).count,
+      0,
+    );
+    assert.equal(sqlite.prepare('SELECT COUNT(*) AS count FROM category_applicability').get().count, 16);
+    assert.equal(sqlite.prepare('SELECT COUNT(*) AS count FROM categories').get().count, 18);
   });
 });
 
@@ -277,16 +469,22 @@ test('migration chain: genuine 0000 database upgrades without backfill or data c
     sqlite.prepare('INSERT INTO users (id, email, name) VALUES (1, ?, ?)').run('upgrade@example.test', 'Upgrade');
     sqlite.prepare('INSERT INTO user_profiles (user_id, monthly_income, emergency_fund_target) VALUES (1, 5000, 9000)').run();
     sqlite.prepare('INSERT INTO accounts (id, user_id, name, type, balance) VALUES (1, 1, ?, ?, 750)').run('Cash', 'cash');
+    insertCategories(sqlite);
     sqlite.prepare('INSERT INTO transactions (client_id, user_id, account_id, date, amount, type) VALUES (?, 1, 1, ?, 750, ?)').run('existing', '2026-01-01T00:00:00.000Z', 'income');
     const profileBefore = sqlite.prepare('SELECT * FROM user_profiles').get();
     const accountBefore = sqlite.prepare('SELECT * FROM accounts').get();
     const transactionBefore = sqlite.prepare('SELECT * FROM transactions').get();
+    const categoriesBefore = sqlite.prepare('SELECT * FROM categories ORDER BY id').all();
     await migrateWithExpoPath(sqlite, current);
     const { financial_history_started_at: historyStart, ...profileAfter } = sqlite.prepare('SELECT * FROM user_profiles').get();
     assert.deepEqual(profileAfter, profileBefore);
     assert.equal(historyStart, null);
-    assert.deepEqual(sqlite.prepare('SELECT * FROM accounts').get(), accountBefore);
+    const { opening_balance: openingBalance, ...accountAfter } = sqlite.prepare('SELECT * FROM accounts').get();
+    assert.deepEqual(accountAfter, accountBefore);
+    assert.equal(openingBalance, null);
     assert.deepEqual(sqlite.prepare('SELECT * FROM transactions').get(), transactionBefore);
+    assert.deepEqual(sqlite.prepare('SELECT * FROM categories ORDER BY id').all(), categoriesBefore);
+    assert.deepEqual(applicabilityRows(sqlite), approvedApplicability);
     assert.equal(sqlite.prepare('SELECT COUNT(*) AS count FROM financial_history_start_audit').get().count, 0);
     assert.deepEqual(migrationJournal(sqlite), current.journal.entries.map((entry) => entry.when));
 

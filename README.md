@@ -19,7 +19,7 @@ Phase 0 established the protected mobile SQLite/Drizzle baseline while retaining
 
 This is a reliability foundation for supported income and expense workflows, not a claim that every planned financial feature or production runtime environment is complete.
 
-Phase 3 adds the approved `Asia/Karachi` reporting calendar, a nullable per-user financial-history start with confirmation/correction audit records, and forecast readiness based on the three immediately preceding complete reporting months. These capabilities are implemented and covered by host-side tests. The user-facing history-start confirmation, correction, and recovery workflow is still missing, and Expo SQLite behavior has not been verified on an emulator or physical device.
+Phase 3 adds the approved `Asia/Karachi` reporting calendar, financial-history readiness and UI workflows, category applicability, signed PKR presentation, dedicated transfers, and explicit opening-balance reconciliation with append-only audits. These capabilities are implemented and host-tested; Expo SQLite behavior has not been verified on an emulator or physical device.
 
 ## Financial data integrity
 
@@ -31,10 +31,10 @@ Supported income and expense mutations currently enforce these invariants:
 - account ownership, idempotent request reuse, conflicting request-ID reuse, and inconsistent stored account references are rejected before unsafe mutation;
 - forced-failure tests prove rollback for create, update, and delete in the host SQLite test environment;
 - persisted transaction rows are validated before list/get/reporting/reconciliation use, and invalid data fails clearly without repair;
-- read-only reconciliation uses checked arithmetic and reports a diagnostic candidate opening balance without automatically repairing data;
+- opening balances remain distinct from current balances and ledger activity; nullable values are unconfirmed, suggestions are never automatic, and confirmations/corrections are stale-safe, audited, and atomic;
 - expenses that would create a negative balance require an exact repository-generated overdraft confirmation tied to the account and projected balance; stale confirmations are rejected;
 - future-dated income/expense creation and date-changing edits are rejected, while existing future rows remain preserved and may be deleted atomically;
-- new transfer mutations are unsupported, and existing legacy transfer rows cannot be updated or deleted until a balanced transfer representation is implemented.
+- dedicated transfers apply equal-and-opposite account effects atomically and remain excluded from income, expenses, savings, and forecasts; legacy single-account transfer rows stay readable and mutation-blocked.
 
 Category applicability remains an explicit policy decision. The current UI category grouping is not an authoritative repository rule.
 
@@ -52,7 +52,7 @@ npm run lint
 npm run check
 ```
 
-On October 20, 2026, running `npm test` from `mobile/` completed with 146 passing tests and 0 failures. The host-side suite covers transaction and rollback behavior, ownership, idempotency, overdraft handling, persisted-row validation, reporting calendars, migrations, financial-history state and commands, and forecast readiness. It uses Node SQLite and `better-sqlite3`; it does not prove Expo SQLite emulator/device compatibility. Mobile typecheck and lint also passed. Root/web test, typecheck, and lint commands could not run in that audit environment because the root dependencies were not installed, and no dependencies were installed to change that state.
+On October 21, 2026, running `npm test` from `mobile/` completed with 207 passing tests and 0 failures. The host-side suite covers migrations, financial mutations and rollback, ownership, idempotency, category applicability, signed formatting, history workflows, forecasts, transfers, and opening-balance audits. It uses Node SQLite and `better-sqlite3`; it does not prove Expo SQLite emulator/device compatibility. Mobile typecheck and lint also passed. Root/web checks remain outside this mobile validation scope.
 
 ## Repository structure
 
@@ -91,12 +91,8 @@ Database schema changes require a reviewed migration. Run `npm run db:generate` 
 
 The following work is not complete:
 
-- transfers need an approved paired-leg or dedicated transfer representation and migration;
-- explicit opening balances require a reviewed migration informed by reconciliation results;
-- the financial-history and forecast-readiness services exist, but mobile has no user-facing confirmation, correction, or missing-profile recovery screen;
-- category-applicability policy and enforcement remain unresolved;
+- rendered UI and Expo SQLite behavior still require emulator or physical-device qualification;
 - existing legacy future-dated rows can still make stored balances differ from cutoff-filtered reporting actuals;
-- signed balance/availability formatting still needs improvement because the shared formatter uses absolute values;
 - refunds, pending transactions, and soft deletion remain unsupported;
 - seed and chat repositories do not yet have full integration/rollback coverage, and chat message ownership requires separate hardening;
 - React Native overdraft-dialog interactions do not yet have automated component tests;
@@ -110,4 +106,4 @@ Optional AI generation requires a separately operated secure HTTPS backend. Only
 
 ## Roadmap
 
-Remaining Phase 3 work should expose the implemented history-start workflow in the mobile UI, qualify migrations and behavior on Expo SQLite, add mobile checks to CI, and reconcile release documentation. Transfer and opening-balance models, category applicability, signed financial formatting, synchronization, backup/recovery, and authenticated AI access remain separate future decisions.
+Remaining Phase 3 work should qualify migrations and behavior on Expo SQLite and add mobile checks to CI. Synchronization, backup/recovery, refunds, and authenticated mobile-ledger AI access remain separate future decisions.

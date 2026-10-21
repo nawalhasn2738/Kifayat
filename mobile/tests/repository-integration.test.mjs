@@ -53,6 +53,11 @@ test('catalog integration: scopes and orders accounts, orders categories, and lo
     await database.insert(schema.categories).values([
       { id: 1, name: 'Utilities' }, { id: 2, name: 'Food' }, { id: 3, name: 'Books' },
     ]);
+    await database.insert(schema.categoryApplicability).values([
+      { categoryId: 1, transactionType: 'expense' },
+      { categoryId: 2, transactionType: 'income' },
+      { categoryId: 2, transactionType: 'expense' },
+    ]);
     await database.insert(schema.userProfiles).values({
       userId: localUserId, monthlyIncome: 5000, emergencyFundTarget: 15000,
       riskTolerance: 'medium', dependents: 1, notesAboutSelf: 'Synthetic profile',
@@ -60,7 +65,14 @@ test('catalog integration: scopes and orders accounts, orders categories, and lo
 
     const repository = createCatalogRepository(database, { userId: localUserId });
     assert.deepEqual((await repository.listAccounts()).map((row) => row.name), ['Bank', 'Wallet']);
-    assert.deepEqual((await repository.listCategories()).map((row) => row.name), ['Books', 'Food', 'Utilities']);
+    assert.deepEqual((await repository.listCategories()).map((row) => ({
+      name: row.name,
+      applicableTransactionTypes: row.applicableTransactionTypes,
+    })), [
+      { name: 'Books', applicableTransactionTypes: [] },
+      { name: 'Food', applicableTransactionTypes: ['expense', 'income'] },
+      { name: 'Utilities', applicableTransactionTypes: ['expense'] },
+    ]);
     const profile = await repository.getProfile();
     assert.equal(profile.userId, localUserId);
     assert.equal(profile.notesAboutSelf, 'Synthetic profile');

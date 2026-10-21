@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { ErrorState, LoadingState, PrimaryButton, Screen, SectionTitle, palette, styles as ui } from '@/components/finance-ui';
-import { api, createTransactionRequestId, OverdraftConfirmationRequiredError, type TransactionMutationOptions } from '@/lib/api';
+import { api, createTransactionRequestId, formatPKR, OverdraftConfirmationRequiredError, type TransactionMutationOptions } from '@/lib/api';
 import { useApi } from '@/hooks/use-api';
+import { categoryOptionsForEditor, isCategorySelectionAllowed, reconcileCategorySelection, type SelectableTransactionType } from '@/lib/finance/category-selection';
 import { parsePkrAmount, type TransactionInput } from '@/lib/validation/transaction';
 
 export default function AddTransactionScreen() {
@@ -41,16 +42,24 @@ export default function AddTransactionScreen() {
   if (!data) return null;
 
   const selectedAccountId = accountId ?? data.accounts[0]?.id ?? null;
-  const visibleCategories = data.categories.filter((category) =>
-    type === 'income'
-      ? category.parent === 'Income'
-      : category.parent !== 'Income' && category.parent !== 'Transfer',
+  const originalType: SelectableTransactionType | null = data.transaction
+    ? (data.transaction.type === 'income' ? 'income' : data.transaction.type === 'expense' ? 'expense' : null)
+    : null;
+  const originalCategoryId = data.transaction?.category?.id ?? null;
+  const visibleCategories = categoryOptionsForEditor(
+    data.categories, type, categoryId, originalCategoryId, originalType,
   );
+
+  function changeType(nextType: SelectableTransactionType) {
+    if (nextType === type) return;
+    setType(nextType);
+    setCategoryId((current) => reconcileCategorySelection(data!.categories, nextType, current));
+  }
 
   function showOverdraftConfirmation(input: TransactionInput, error: OverdraftConfirmationRequiredError, requestId: string | null) {
     Alert.alert(
       'Confirm overdraft',
-      `${error.accountName} would have a projected balance of PKR ${error.projectedBalance.toLocaleString('en-PK')}. Confirming will allow this account to go below zero.`,
+      `${error.accountName} would have a projected balance of ${formatPKR(error.projectedBalance)}. Confirming will allow this account to go below zero.`,
       [
         { text: 'Cancel', style: 'cancel', onPress: () => setSaving(false) },
         {
@@ -90,6 +99,10 @@ export default function AddTransactionScreen() {
       setFormError('Select an account before saving.');
       return;
     }
+    if (!isCategorySelectionAllowed(data!.categories, type, categoryId, originalCategoryId, originalType)) {
+      setFormError('Select a category that applies to this transaction type, or leave it uncategorized.');
+      return;
+    }
 
     setSaving(true);
     setFormError(null);
@@ -127,7 +140,7 @@ export default function AddTransactionScreen() {
                 accessibilityRole="button"
                 accessibilityState={{ selected: type === item }}
                 key={item}
-                onPress={() => { setType(item); setCategoryId(null); }}
+                onPress={() => changeType(item)}
                 style={[local.segmentButton, type === item && local.segmentActive]}>
                 <Text style={[local.segmentText, type === item && local.segmentTextActive]}>{item}</Text>
               </Pressable>
@@ -146,9 +159,12 @@ export default function AddTransactionScreen() {
 
           <Field label="Category">
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={local.chips}>
+              <Pressable accessibilityRole={'button'} accessibilityState={{ selected: categoryId === null }} onPress={() => setCategoryId(null)} style={[local.chip, categoryId === null && local.chipActive]}>
+                <Text style={[local.chipText, categoryId === null && local.chipTextActive]}>Uncategorized</Text>
+              </Pressable>
               {visibleCategories.map((category) => (
                 <Pressable accessibilityRole="button" accessibilityState={{ selected: categoryId === category.id }} key={category.id} onPress={() => setCategoryId(category.id)} style={[local.chip, categoryId === category.id && local.chipActive]}>
-                  <Text style={[local.chipText, categoryId === category.id && local.chipTextActive]}>{category.name.replaceAll('_', ' ')}</Text>
+                  <Text style={[local.chipText, categoryId === category.id && local.chipTextActive]}>{category.name.replaceAll('_', ' ')}{categoryId === category.id && !category.applicableTransactionTypes.includes(type) ? ' (existing)' : ''}</Text>
                 </Pressable>
               ))}
             </ScrollView>

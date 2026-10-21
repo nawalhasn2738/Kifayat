@@ -169,3 +169,77 @@ test('forecast readiness: every unavailable result carries null and consumer gui
     assert.ok(result.guidance.length > 0);
   }
 });
+test('forecast readiness: category estimates use the same complete months with zero-filled gaps', async () => {
+  const categorized = (amount: number, date: string, id: number, name: string) => ({
+    ...transaction(amount, date),
+    category: { id, name },
+  });
+  const result = await service(
+    { status: 'confirmed', value: aprilStart, calendarDate: '2026-04-01' },
+    [
+      categorized(-90, '2026-04-10T12:00:00.000Z', 1, 'groceries'),
+      categorized(-210, '2026-06-10T12:00:00.000Z', 1, 'groceries'),
+      categorized(-30, '2026-04-11T12:00:00.000Z', 2, 'transport'),
+      categorized(-60, '2026-05-11T12:00:00.000Z', 2, 'transport'),
+      categorized(-90, '2026-06-11T12:00:00.000Z', 2, 'transport'),
+      transaction(-15, '2026-05-12T12:00:00.000Z'),
+      categorized(-99_999, '2026-07-01T12:00:00.000Z', 3, 'current_month_only'),
+      { ...categorized(50_000, '2026-05-12T12:00:00.000Z', 4, 'income_category'), type: 'income' as const },
+      { ...categorized(40_000, '2026-05-12T12:00:00.000Z', 5, 'transfer_category'), type: 'transfer' as const },
+    ],
+  )();
+
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(result.forecast.byCategory, {
+    groceries: { blend: 100, low: 14, high: 186 },
+    transport: { blend: 60, low: 36, high: 84 },
+    uncategorized: { blend: 5, low: 0, high: 12 },
+  });
+  assert.deepEqual(result.forecast.total, { blend: 165, low: 68, high: 262 });
+  assert.equal(result.forecast.method, '3-month mean ± population standard deviation using complete Karachi months');
+});
+
+test('forecast readiness: zero spending produces a zero total without fabricated categories', async () => {
+  const result = await service(
+    { status: 'confirmed', value: aprilStart, calendarDate: '2026-04-01' },
+    [],
+  )();
+
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(result.forecast.total, { blend: 0, low: 0, high: 0 });
+  assert.deepEqual(result.forecast.byCategory, {});
+});
+
+test('forecast readiness: real uncategorized category stays distinct from missing categories', async () => {
+  const result = await service(
+    { status: 'confirmed', value: aprilStart, calendarDate: '2026-04-01' },
+    [
+      { ...transaction(-90, '2026-04-10T12:00:00.000Z'), category: { id: 7, name: 'uncategorized' } },
+      transaction(-30, '2026-04-11T12:00:00.000Z'),
+    ],
+  )();
+
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(result.forecast.byCategory, {
+    uncategorized: { blend: 10, low: 0, high: 24 },
+    'uncategorized [category 7]': { blend: 30, low: 0, high: 72 },
+  });
+  assert.equal(result.forecast.total.blend, 40);
+});
+
+test('forecast readiness: category window is start-inclusive at the Karachi month boundary', async () => {
+  const result = await service(
+    { status: 'confirmed', value: aprilStart, calendarDate: '2026-04-01' },
+    [
+      { ...transaction(-9_000, '2026-03-31T18:59:59.999Z'), category: { id: 1, name: 'groceries' } },
+      { ...transaction(-90, '2026-03-31T19:00:00.000Z'), category: { id: 1, name: 'groceries' } },
+    ],
+  )();
+
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(result.qualifyingMonths, ['2026-04', '2026-05', '2026-06']);
+  assert.deepEqual(result.forecast.byCategory, {
+    groceries: { blend: 30, low: 0, high: 72 },
+  });
+  assert.equal(result.forecast.total.blend, 30);
+});

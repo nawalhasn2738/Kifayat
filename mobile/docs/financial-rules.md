@@ -36,7 +36,7 @@ This specification covers PKR amounts, transactions, balances, transfers, saving
 
 - **Approved target invariant:** `account balance = opening balance + sum of active financial transaction effects`.
 - An income effect is positive, an expense effect is negative, and a transfer has equal and opposite effects on its two accounts.
-- **Existing behavior:** `accounts.balance` is stored independently and is updated by the transaction repository. No opening-balance field exists. Seeded accounts start at zero.
+- **Existing behavior:** `accounts.balance` remains the current balance. A separate nullable signed `openingBalance` is unconfirmed when null; seeded and migrated accounts remain null until explicit confirmation.
 
 ### Savings
 
@@ -60,9 +60,9 @@ This specification covers PKR amounts, transactions, balances, transfers, saving
 4. Monetary values are stored as integers. Display formatting is separate from storage and must preserve negative signs where financially meaningful.
 5. Currency conversion and multi-currency accounts are unsupported in the initial release.
 
-**Current verified behavior:** SQLite uses integer monetary columns. Transaction and affordability price inputs use the shared strict `parsePkrAmount` boundary, capped at PKR 2,147,483,647; malformed, signed, decimal, exponent, zero, and out-of-range inputs are rejected without truncation. Affordability planning horizons are whole numbers from 1 through 120 months; malformed, fractional, non-finite, unsafe, and out-of-range values are rejected. `formatPKR` still applies `Math.abs`, which can hide negative signs in totals and affordability values.
+**Current verified behavior:** SQLite uses integer monetary columns. Transaction and affordability price inputs use the shared strict `parsePkrAmount` boundary, capped at PKR 2,147,483,647; malformed, signed, decimal, exponent, zero, and out-of-range inputs are rejected without truncation. Affordability planning horizons are whole numbers from 1 through 120 months; malformed, fractional, non-finite, unsafe, and out-of-range values are rejected. General PKR formatting preserves signed safe-integer values, including negative balances and availability. Transaction presentation uses a separate explicit direction-plus-magnitude formatter.
 
-**Current future-date policy:** the repository rejects new future-dated income and expense transactions and edits that newly make an income or expense future-dated, using canonical UTC instants and its injected current-time source. Existing future-dated rows are preserved; an idempotent replay may return an existing row, an unchanged-date edit remains supported, and deletion uses the existing atomic balance reversal. Scheduled transactions are unsupported. Opening-balance semantics remain separate and unresolved.
+**Current future-date policy:** the repository rejects new future-dated income and expense transactions and edits that newly make an income or expense future-dated, using canonical UTC instants and its injected current-time source. Existing future-dated rows are preserved; an idempotent replay may return an existing row, an unchanged-date edit remains supported, and deletion uses the existing atomic balance reversal. Scheduled transactions are unsupported. History-start remains separate from opening-balance and current-balance state.
 
 **Current creation-idempotency behavior:** each mobile create attempt supplies a non-empty client request ID. Reusing that ID with the same user and identical normalized transaction details returns the existing row without applying another balance effect. Reusing it for different details or another user is rejected. This is implemented and covered by repository integration tests; it does not imply cross-device synchronization or a retry contract for the separate web/Prisma transaction API.
 
@@ -89,15 +89,15 @@ This specification covers PKR amounts, transactions, balances, transfers, saving
 
 ### 3.4 Transfers
 
-Recommended SQLite/Drizzle representation for the approved target:
+Implemented mobile SQLite/Drizzle representation:
 
-- Add a stable transfer identifier shared by two linked transaction legs, or add a dedicated transfer entity plus its two account effects.
-- Record a negative source leg and an equal positive destination leg.
+- Store one dedicated transfer row with source and destination account references.
+- Treat those references and the positive amount as equal-and-opposite ledger effects.
 - Require source and destination account IDs, positive whole amount, date, and client-generated idempotency ID.
 - Require different accounts owned by the same local user.
 - Create, edit, or delete both effects in one SQLite transaction.
 
-The current schema needs a migration because it has one `accountId` per transaction and no destination account, transfer ID, or link between paired effects. The existing `type = transfer` text value is insufficient to guarantee a balanced transfer.
+Migration 0003 adds this representation without converting legacy single-account transfer transaction rows. Legacy rows remain readable and mutation-blocked.
 
 Transfer reporting rules:
 
@@ -116,7 +116,7 @@ Transfer reporting rules:
 6. Editing a transfer must update both linked effects atomically.
 7. If a revised expense would overdraw its account, require explicit confirmation.
 
-**Existing behavior:** income and expense edits reverse and reapply balance effects atomically in repository source. An existing transfer is loaded by the UI as an expense and cannot be edited correctly.
+**Existing behavior:** income and expense edits retain their existing behavior. Dedicated transfers can be corrected atomically; legacy single-account transfer rows remain read-only.
 
 ### 3.6 Deletion
 
@@ -126,13 +126,13 @@ Transfer reporting rules:
 4. Deleting a transfer must reverse both account effects.
 5. A failed deletion must leave the original transaction and balances unchanged.
 
-**Existing behavior:** the detail screen confirms deletion, and income/expense deletion reverses the stored signed effect in one repository transaction.
+**Existing behavior:** transaction and dedicated-transfer detail screens confirm deletion. Dedicated transfer deletion reverses both effects atomically; legacy transfer rows remain protected.
 
 **Future recommendation:** consider reversal records or soft deletion if audit history becomes a requirement. Do not implement that as part of the initial MVP rules.
 
 ## 4. Opening balances and balance consistency
 
-No opening-balance field currently exists. Seeded accounts use a stored balance of zero, and later transaction mutations directly change that balance.
+Accounts have a nullable signed opening balance. Null means unconfirmed, including for seeded and migrated accounts; zero becomes confirmed only through explicit action. Reliable suggestions include ordinary effects and both sides of owned dedicated transfers. Any legacy single-account transfer or invalid dedicated-transfer relationship makes the suggestion ambiguous and blocks confirmation or replacement. Corrections preserve subsequent activity with `new current = current + (new opening - old opening)` and append an atomic audit record.
 
 ### Approved introduction approach
 
@@ -201,7 +201,7 @@ The named-timezone reporting-calendar utility is integrated into mobile monthly 
 - identifies the output as an estimate;
 - documents the method in user-facing text.
 
-**Current behavior:** the readiness service requires a valid confirmed `financialHistoryStartedAt` and exactly the three complete `Asia/Karachi` months immediately before the current reporting month. Qualifying empty months contribute zero, and the partial current month is excluded. Unconfirmed, invalid, or insufficient history returns typed readiness metadata with `forecast: null`; ready results retain the existing total mean-and-variation calculation. The category forecast remains empty. The history-start read, recovery, confirmation, and correction services exist, but no user-facing confirmation/correction/recovery workflow is currently wired into the mobile screens.
+**Current behavior:** the readiness service requires a valid confirmed `financialHistoryStartedAt` and exactly the three complete `Asia/Karachi` months immediately before the current reporting month. Qualifying empty months contribute zero, and the partial current month is excluded. Unconfirmed, invalid, or insufficient history returns typed readiness metadata with `forecast: null`. Ready total and category estimates use the same rounded three-month mean and population-standard-deviation range; category gaps within the window are zero-filled, uncategorized expenses are grouped explicitly, and categories seen only outside the window are excluded. Each category estimate is rounded independently, so displayed category estimates are not required to sum exactly to the independently calculated overall estimate; no rounding redistribution policy has been approved. The Planning screen exposes explicit history-start confirmation, correction, and missing-profile recovery.
 
 ## 6. Data-integrity requirements
 
@@ -265,17 +265,17 @@ A future refund should link to its original expense, increase the receiving acco
 
 | Area | Current behavior | Target behavior and status | Likely files affected | Required change | Risk or migration consideration |
 |---|---|---|---|---|---|
-| Transfers | Schema/type mention `transfer`; UI and validator accept only income/expense; one account per row. Existing legacy transfer rows are read-only: update/delete reject them without writes. | Atomic source-to-destination movement, excluded from income/expense | `db/schema.ts`, migration files, transaction repository, validation, types, add/detail/list screens | Add linked two-leg or dedicated transfer representation and mutation flow | Existing raw transfer rows need classification; migration must preserve them |
+| Transfers | Dedicated user-owned transfer rows identify source, destination, amount, date, request identity, and description; balances change atomically and source overdrafts reject. Activity groups each new transfer once. Legacy transaction transfer rows remain readable and read-only. | Implemented on mobile; excluded from income, expenses, savings, and forecasts | Transfer schema/migration, repository, validation, API, and add/detail/list screens | Verify Expo SQLite and rendered UI on a device | No account-specific activity screen; legacy rows are not automatically paired |
 | Balance consistency | Stored balance is updated atomically alongside supported CRUD. Read-only reconciliation reports signed effects, candidate opening balance, and discrepancies without repair. | Opening balance plus active effects equals stored balance | Schema, migrations, account/transaction repositories, seed, tests | Preserve reconciliation and later add an approved opening-balance model | Candidate opening balance is diagnostic and may reflect missing history |
 | Opening balances | No field; seeded balances start at zero | Explicit integer opening balance for new and migrated accounts | Schema, migration, seed, account creation/import | Add only after auditing existing balance-versus-ledger differences | Preserve current stored balances; do not default existing accounts blindly |
 | Amount parsing | Shared strict parsing is used by transaction and affordability inputs; the maximum is PKR 2,147,483,647. | Reject the complete non-whole input without truncation | Add-transaction and planning screens, validation utilities, tests | Completed for current monetary input paths | Future monetary inputs must reuse the same boundary |
 | Savings | Mobile reporting calculates income minus expenses within each populated `Asia/Karachi` monthly bucket and excludes transfers; the separate legacy web helper still uses negative transfer rows | Income minus expenses over the same period | Finance service, types, dashboard, tests | Mobile primary savings and approved calendar attribution are aligned; retain transfer exclusion | Web behavior remains separate |
-| Forecasts | Readiness uses the previous three complete Karachi months, zero-fills qualifying post-start empty months, excludes the partial current month, and returns `forecast: null` with stable reasons when unavailable; category forecast remains empty | Approved readiness contract is implemented at service level | Finance service, history-start/readiness services, types, planning screen, tests | Add the missing user-facing history-start workflow; category forecasting remains separate | Existing users cannot confirm readiness through the current UI |
-| Negative formatting | Shared formatter removes the sign with `Math.abs` | Preserve signs for balances/availability; use explicit sign only where presentation requires it | `lib/api.ts`, dashboard, planning, transaction screens | Separate signed money formatting from absolute transaction display | UI snapshots and user interpretation change |
+| Forecasts | Readiness uses the previous three complete Karachi months, zero-fills qualifying post-start empty months, excludes the partial current month, and returns `forecast: null` with stable reasons when unavailable; ready total and category estimates use the same mean and population-standard-deviation method | Approved readiness contract and category estimates are implemented | Finance service, history-start/readiness services, types, planning screen, tests | Verify Expo SQLite and rendered UI behavior on a device | Device-specific behavior remains unverified |
+| Negative formatting | General PKR formatting preserves signs; transaction rows explicitly separate direction from magnitude | Preserve signs for balances/availability; use explicit sign only where presentation requires it | Money-format utility, dashboard, planning, transaction screens | Verify rendered output on an emulator or device | Device typography and screen-level rendering remain unverified |
 | Insufficient funds | Repository rechecks the projection in its SQLite transaction and requires exact account/projection confirmation; API/UI provides Cancel and Confirm. | Warn, require explicit confirmation, then allow | Add/edit screen, repository/domain mutation input, tests | Repository/API/UI flow completed | Dialog behavior lacks automated React Native component tests |
 | Category integrity | Positive/null ID validation; SQLite FK handles existence when enabled | Confirm category exists and is valid for type | Validation/domain repository and tests | Add repository validation before mutation | Category policy must be defined; legacy uncategorized rows remain valid |
 | Database constraints | Text types lack SQL `CHECK` constraints | Enforce stable invariants where practical | Schema and new migration | Add constraints only after compatibility review | SQLite table-rebuild migrations can risk data loss |
-| Tests | On October 20, 2026, `npm test` from `mobile/` passed 146 host-side tests using disposable Node SQLite and better-sqlite3 databases. | Mutation, rollback, migration-chain, calculation, boundary, history-start, and readiness coverage | Mobile test setup and finance/repository tests | Continue with UI, CI, and Expo SQLite device coverage | Root/web checks and Expo SQLite parity remain unverified |
+| Tests | On October 21, 2026, `npm test` from `mobile/` passed 167 host-side tests using disposable Node SQLite and better-sqlite3 databases. | Mutation, rollback, migration-chain, calculation, boundary, history-start, readiness, and signed-formatting coverage | Mobile test setup and finance/repository tests | Continue with UI, CI, and Expo SQLite device coverage | Root/web checks and Expo SQLite parity remain unverified |
 
 ## 9. Implementation order for future mini-tasks
 

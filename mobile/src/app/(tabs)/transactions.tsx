@@ -1,13 +1,14 @@
 import { useCallback } from 'react';
 import { router, useFocusEffect } from 'expo-router';
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
-import { Card, ErrorState, LoadingState, Screen, palette, styles as ui } from '@/components/finance-ui';
-import { api, formatPKR } from '@/lib/api';
+import { Card, ErrorState, LoadingState, PrimaryButton, Screen, palette, styles as ui } from '@/components/finance-ui';
+import { api, formatPKR, formatTransactionPKR, transactionAmountTone } from '@/lib/api';
 import { useApi } from '@/hooks/use-api';
 import type { Transaction } from '@/lib/types';
+import { activityDetailRoute, activityKey } from '@/lib/finance/activity-presentation';
 
 export default function TransactionsScreen() {
-  const load = useCallback(() => api.transactions(), []);
+  const load = useCallback(() => api.activity(), []);
   const { data, loading, error, reload } = useApi(load);
 
   useFocusEffect(
@@ -24,18 +25,18 @@ export default function TransactionsScreen() {
     <Screen>
       <FlatList
         data={data.items}
-        keyExtractor={(item) => String(item.id)}
+        keyExtractor={activityKey}
         contentContainerStyle={[local.list, data.items.length === 0 && local.emptyList]}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={reload} tintColor={palette.primary} />}
-        ListHeaderComponent={<View style={local.header}><Text style={local.title}>Activity</Text><Text style={ui.muted}>{data.total} transactions · tap one for details</Text></View>}
+        ListHeaderComponent={<View style={local.header}><Text style={local.title}>Activity</Text><Text style={ui.muted}>{data.total} events · tap one for details</Text><PrimaryButton label={'Transfer money'} onPress={() => router.push('/add-transfer')} /></View>}
         ListEmptyComponent={<View style={local.empty}><Text style={local.emptyTitle}>No transactions yet</Text><Text style={ui.muted}>Use the Add button in the header to record your first transaction.</Text></View>}
         renderItem={({ item }) => (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`Open transaction ${item.id}`}
-            onPress={() => router.push({ pathname: '/transaction/[id]', params: { id: String(item.id), from: 'Transactions' } })}
+            accessibilityLabel={`Open ${item.kind} ${item.id}`}
+            onPress={() => router.push(activityDetailRoute(item))}
             style={({ pressed }) => pressed && local.pressed}>
-            <TransactionRow item={item} />
+            {item.kind === 'transfer' ? <TransferRow item={item} /> : <TransactionRow item={item} />}
           </Pressable>
         )}
       />
@@ -43,19 +44,30 @@ export default function TransactionsScreen() {
   );
 }
 
+function TransferRow({ item }: { item: Awaited<ReturnType<typeof api.transfers>>[number] }) {
+  return <Card><View style={local.row}>
+    <View style={[local.icon, { backgroundColor: palette.border }]}><Text style={{ color: palette.primary }}>↔</Text></View>
+    <View style={local.detail}><Text style={local.merchant}>Transfer</Text>
+      <Text style={ui.muted}>{item.sourceAccount.name} → {item.destinationAccount.name}</Text></View>
+    <Text style={[local.txAmount, { color: palette.text }]}>{formatPKR(item.amount)}</Text>
+  </View></Card>;
+}
+
 function TransactionRow({ item }: { item: Transaction }) {
-  const positive = item.type === 'income';
+  const tone = transactionAmountTone(item.type, item.amount);
+  const positive = tone === 'positive';
+  const negative = tone === 'negative';
   return (
     <Card>
       <View style={local.row}>
-        <View style={[local.icon, { backgroundColor: positive ? '#123b30' : '#421e29' }]}>
-          <Text style={{ color: positive ? palette.success : palette.danger }}>{positive ? '↑' : '↓'}</Text>
+        <View style={[local.icon, { backgroundColor: positive ? '#123b30' : negative ? '#421e29' : palette.border }]}>
+          <Text style={{ color: positive ? palette.success : negative ? palette.danger : palette.muted }}>{positive ? '↑' : negative ? '↓' : '•'}</Text>
         </View>
         <View style={local.detail}>
           <Text numberOfLines={1} style={local.merchant}>{item.merchant ?? item.category?.name ?? 'Transaction'}</Text>
           <Text style={ui.muted}>{new Date(item.date).toLocaleDateString('en-PK')} · {(item.category?.name ?? 'uncategorized').replaceAll('_', ' ')}</Text>
         </View>
-        <Text style={[local.txAmount, { color: positive ? palette.success : palette.text }]}>{positive ? '+' : '−'}{formatPKR(item.amount)}</Text>
+        <Text style={[local.txAmount, { color: positive ? palette.success : negative ? palette.danger : palette.text }]}>{formatTransactionPKR(item.amount)}</Text>
       </View>
     </Card>
   );

@@ -1,6 +1,7 @@
 import { and, asc, eq } from 'drizzle-orm';
 import { LOCAL_USER_ID } from '@/lib/db/seed';
-import { accounts, categories, transactions, userProfiles } from '@/lib/db/schema';
+import { accounts, categories, categoryApplicability, transactions, userProfiles } from '@/lib/db/schema';
+import type { CategoryApplicabilityRow, CategoryRow } from '@/lib/db/schema';
 import type { AppDatabase } from '@/lib/db/types';
 import { validatePersistedTransaction } from '@/lib/validation/transaction';
 
@@ -33,6 +34,10 @@ export type AccountBalanceReconciliation = {
   status: 'matched' | 'discrepancy';
 };
 
+export type CatalogCategory = CategoryRow & {
+  applicableTransactionTypes: CategoryApplicabilityRow['transactionType'][];
+};
+
 export function createCatalogRepository<TRunResult>(
   database: AppDatabase<TRunResult>,
   dependencies: CatalogRepositoryDependencies = { userId: LOCAL_USER_ID },
@@ -40,7 +45,23 @@ export function createCatalogRepository<TRunResult>(
   const listAccounts = () => database.select().from(accounts)
     .where(eq(accounts.userId, dependencies.userId)).orderBy(asc(accounts.name));
 
-  const listCategories = () => database.select().from(categories).orderBy(asc(categories.name));
+  async function listCategories(): Promise<CatalogCategory[]> {
+    const [categoryRows, applicabilityRows] = await Promise.all([
+      database.select().from(categories).orderBy(asc(categories.name)),
+      database.select().from(categoryApplicability)
+        .orderBy(asc(categoryApplicability.categoryId), asc(categoryApplicability.transactionType)),
+    ]);
+    const applicabilityByCategory = new Map<number, CategoryApplicabilityRow['transactionType'][]>();
+    for (const row of applicabilityRows) {
+      const transactionTypes = applicabilityByCategory.get(row.categoryId) ?? [];
+      transactionTypes.push(row.transactionType);
+      applicabilityByCategory.set(row.categoryId, transactionTypes);
+    }
+    return categoryRows.map((category): CatalogCategory => ({
+      ...category,
+      applicableTransactionTypes: applicabilityByCategory.get(category.id) ?? [],
+    }));
+  }
 
   async function reconcileAccountBalances(): Promise<AccountBalanceReconciliation[]> {
     return database.transaction((tx) => {

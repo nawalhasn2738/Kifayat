@@ -36,7 +36,7 @@ The dependency direction is `screens -> hooks -> services/repositories -> Drizzl
 
 The app opens `kifayat.db`, applies migrations before rendering routes, enables foreign keys and WAL, then idempotently creates the single local profile, default accounts, categories, and emergency-fund goal. Amounts use signed integer PKR units: income is positive, expense is negative, and transfers retain their direction. Mobile transaction creation requires a client request ID: identical reuse returns the existing row without another balance effect, while conflicting reuse is rejected. Create, update, and delete operations update account balances in the same SQLite transaction.
 
-Reporting uses fixed `Asia/Karachi` calendar boundaries while transaction timestamps remain canonical UTC instants. The history-start service supports read-only state and suggestions, explicit missing-profile recovery, and atomic confirmation/correction with audit rows. Forecast readiness requires a confirmed start and the three immediately preceding complete Karachi months; qualifying empty months count as zero, the current partial month is excluded, and unavailable forecasts return `forecast: null` with a stable reason. These service paths exist, but the app does not yet provide user-facing screens to confirm, correct, or recover history-start state.
+Reporting uses fixed `Asia/Karachi` calendar boundaries while transaction timestamps remain canonical UTC instants. The history-start service supports read-only state and suggestions, explicit missing-profile recovery, and atomic confirmation/correction with audit rows. Forecast readiness requires a confirmed start and the three immediately preceding complete Karachi months; qualifying empty months count as zero, the current partial month is excluded, and unavailable forecasts return `forecast: null` with a stable reason. The Planning screen exposes explicit confirmation, correction, and missing-profile recovery through these services; rendered emulator and physical-device behavior remains unverified.
 
 ## Data migration
 
@@ -56,13 +56,13 @@ The current mobile chat request does not transmit or synchronize the device's SQ
 
 ## Test evidence
 
-On October 20, 2026, `npm test` run from `mobile/` completed with 146 passing host-side tests and 0 failures; `npm run typecheck` and `npm run lint` also passed. The suite uses Node SQLite and `better-sqlite3` with disposable databases. It covers supported financial mutations, migration-chain behavior, history-start services and commands, Karachi boundaries, and forecast readiness, but it is not an Expo SQLite emulator/device run. The repository's current GitHub Actions workflow does not run the mobile check command.
+On October 21, 2026, `npm test` run from `mobile/` completed with 207 passing host-side tests and 0 failures; `npm run typecheck` and `npm run lint` also passed. The suite uses Node SQLite and `better-sqlite3` with disposable databases. It covers financial mutations, migrations, history workflows, Karachi boundaries, forecasts, categories, transfers, opening-balance audits, and signed formatting, but it is not an Expo SQLite emulator/device run. The repository's current GitHub Actions workflow does not run the mobile check command.
 
 ## Known limitations
 
 - The first local install starts with empty transactions; legacy Prisma data requires an explicit export/import flow.
-- Forecasting uses the existing transparent three-month local mean and standard deviation only after the readiness contract succeeds; category forecasts remain empty.
-- History-start confirmation, correction, and recovery have service APIs but no user-facing workflow.
+- Forecasting uses a transparent rounded three-month mean and population-standard-deviation range only after readiness succeeds; total and category estimates use the same complete Karachi months.
+- The Planning screen provides explicit history-start confirmation, correction, and missing-profile recovery through the existing service APIs.
 - Web and mobile use separate databases; cross-device synchronization, automatic import, backup, and restore are not implemented.
 - The retained web/backend uses a hard-coded demo user and is not an authenticated mobile-ledger service.
 - A device/emulator is needed to exercise native SQLite persistence and platform-specific interaction tests.

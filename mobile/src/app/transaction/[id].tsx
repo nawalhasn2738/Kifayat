@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Alert, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Card, ErrorState, LoadingState, PrimaryButton, Screen, SectionTitle, palette, styles as ui } from '@/components/finance-ui';
-import { api, formatPKR } from '@/lib/api';
+import { api, formatTransactionPKR, transactionAmountTone } from '@/lib/api';
 import { useApi } from '@/hooks/use-api';
 
 export default function TransactionDetailsScreen() {
@@ -16,7 +16,8 @@ export default function TransactionDetailsScreen() {
   if (error && !data) return <Screen><View style={local.pad}><ErrorState message={error} retry={reload} /></View></Screen>;
   if (!data) return null;
 
-  const positive = data.type === 'income';
+  const tone = transactionAmountTone(data.type, data.amount);
+  const positive = tone === 'positive';
   const remove = () => Alert.alert('Delete transaction?', 'This will also reverse its account balance change.', [
     { text: 'Cancel', style: 'cancel' },
     { text: 'Delete', style: 'destructive', onPress: () => void api.deleteTransaction(id).then(() => router.replace('/(tabs)/transactions')).catch((caught) => Alert.alert('Could not delete', caught instanceof Error ? caught.message : 'Please try again.')) },
@@ -26,7 +27,7 @@ export default function TransactionDetailsScreen() {
       <ScrollView contentContainerStyle={local.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={reload} tintColor={palette.primary} />}>
         <Card>
           <Text style={local.eyebrow}>TRANSACTION #{rawId}</Text>
-          <Text style={[local.amount, { color: positive ? palette.success : palette.text }]}>{positive ? '+' : '−'}{formatPKR(data.amount)}</Text>
+          <Text style={[local.amount, { color: positive ? palette.success : tone === 'negative' ? palette.danger : palette.text }]}>{formatTransactionPKR(data.amount)}</Text>
           <Text style={ui.muted}>Route parameter received from {params.from ?? 'a direct link'}.</Text>
         </Card>
 

@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { accounts, categories, savingsGoals, userProfiles, users } from './schema';
+import { accounts, categories, categoryApplicability, savingsGoals, userProfiles, users } from './schema';
 import type { AppDatabase } from './types';
 
 export const LOCAL_USER_ID = 1;
@@ -16,6 +16,15 @@ export const CATEGORY_SEED = [
   ['anomaly', 'Anomaly', false, true],
 ] as const;
 
+export const CATEGORY_APPLICABILITY_SEED = [
+  ['salary', 'income'], ['freelance', 'income'],
+  ['groceries', 'expense'], ['fuel', 'expense'], ['utilities', 'expense'],
+  ['internet_mobile', 'expense'], ['transport', 'expense'], ['healthcare', 'expense'],
+  ['university', 'expense'], ['family_support', 'expense'], ['charity', 'expense'],
+  ['food_delivery', 'expense'], ['dine_out', 'expense'], ['subscriptions', 'expense'],
+  ['online_shopping', 'expense'], ['entertainment', 'expense'], ['personal_care', 'expense'],
+] as const;
+
 export async function seedLocalProfile<TRunResult>(database: AppDatabase<TRunResult>) {
   const existing = await database.select({ id: users.id }).from(users).where(eq(users.id, LOCAL_USER_ID)).limit(1);
   if (existing.length) return;
@@ -27,7 +36,15 @@ export async function seedLocalProfile<TRunResult>(database: AppDatabase<TRunRes
       { userId: LOCAL_USER_ID, name: 'Savings', type: 'savings', balance: 0 },
       { userId: LOCAL_USER_ID, name: 'Cash Wallet', type: 'cash', balance: 0 },
     ]).run();
-    tx.insert(categories).values(CATEGORY_SEED.map(([name, parent, isEssential, isHighRisk]) => ({ name, parent, isEssential, isHighRisk }))).run();
+    const seededCategories = tx.insert(categories)
+      .values(CATEGORY_SEED.map(([name, parent, isEssential, isHighRisk]) => ({ name, parent, isEssential, isHighRisk })))
+      .returning({ id: categories.id, name: categories.name }).all();
+    const categoryIdsByName = new Map(seededCategories.map((category) => [category.name, category.id]));
+    tx.insert(categoryApplicability).values(CATEGORY_APPLICABILITY_SEED.map(([name, transactionType]) => {
+      const categoryId = categoryIdsByName.get(name);
+      if (categoryId === undefined) throw new Error(`Missing seeded category applicability target: ${name}`);
+      return { categoryId, transactionType };
+    })).run();
     tx.insert(savingsGoals).values({ userId: LOCAL_USER_ID, name: 'Emergency Fund', targetAmount: 240_000, targetDate: new Date(new Date().getFullYear() + 1, 0, 1).toISOString(), currentAmount: 0 }).run();
   });
 }

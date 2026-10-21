@@ -37,6 +37,8 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="add-transaction" options={{ title: 'Add Transaction' }} />
         <Stack.Screen name="transaction/[id]" options={{ title: 'Transaction Details' }} />
+        <Stack.Screen name={'add-transfer'} options={{ title: 'Transfer Money' }} />
+        <Stack.Screen name={'transfer/[id]'} options={{ title: 'Transfer Details' }} />
       </Stack>
     </>
   );

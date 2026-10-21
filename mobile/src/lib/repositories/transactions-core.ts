@@ -1,6 +1,6 @@
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { LOCAL_USER_ID } from '@/lib/db/seed';
-import { accounts, categories, transactions } from '@/lib/db/schema';
+import { accounts, categories, categoryApplicability, transactions } from '@/lib/db/schema';
 import type { AppDatabase } from '@/lib/db/types';
 import type { Transaction } from '@/lib/types';
 import { validatePersistedTransaction, validateTransactionInput, type TransactionInput } from '@/lib/validation/transaction';
@@ -34,6 +34,31 @@ export class OverdraftConfirmationRequiredError extends Error {
     this.accountId = accountId;
     this.accountName = accountName;
     this.projectedBalance = projectedBalance;
+  }
+}
+
+export type CategoryApplicabilityErrorCode =
+  | 'category_not_found'
+  | 'category_unmapped'
+  | 'category_incompatible';
+
+const categoryApplicabilityMessages: Record<CategoryApplicabilityErrorCode, string> = {
+  category_not_found: 'The selected category no longer exists.',
+  category_unmapped: 'The selected category is not available for new transaction assignments.',
+  category_incompatible: 'The selected category cannot be used for this transaction type.',
+};
+
+export class CategoryApplicabilityError extends Error {
+  readonly code: CategoryApplicabilityErrorCode;
+  readonly categoryId: number;
+  readonly transactionType: TransactionInput['type'];
+
+  constructor(code: CategoryApplicabilityErrorCode, categoryId: number, transactionType: TransactionInput['type']) {
+    super(categoryApplicabilityMessages[code]);
+    this.name = 'CategoryApplicabilityError';
+    this.code = code;
+    this.categoryId = categoryId;
+    this.transactionType = transactionType;
   }
 }
 
@@ -79,6 +104,25 @@ export function createTransactionRepository<TRunResult>(
   database: AppDatabase<TRunResult>,
   dependencies: TransactionRepositoryDependencies = productionDependencies,
 ) {
+  type TransactionContext = Parameters<Parameters<typeof database.transaction>[0]>[0];
+
+  function requireCategoryApplicability(
+    tx: TransactionContext,
+    categoryId: number | null,
+    transactionType: TransactionInput['type'],
+  ) {
+    if (categoryId === null) return;
+    const [category] = tx.select({ id: categories.id }).from(categories)
+      .where(eq(categories.id, categoryId)).limit(1).all();
+    if (!category) throw new CategoryApplicabilityError('category_not_found', categoryId, transactionType);
+    const mappings = tx.select({ transactionType: categoryApplicability.transactionType })
+      .from(categoryApplicability).where(eq(categoryApplicability.categoryId, categoryId)).all();
+    if (!mappings.length) throw new CategoryApplicabilityError('category_unmapped', categoryId, transactionType);
+    if (!mappings.some((mapping) => mapping.transactionType === transactionType)) {
+      throw new CategoryApplicabilityError('category_incompatible', categoryId, transactionType);
+    }
+  }
+
   function selectBase() {
     return database.select(selection).from(transactions)
       .innerJoin(accounts, eq(transactions.accountId, accounts.id))
@@ -150,6 +194,7 @@ export function createTransactionRepository<TRunResult>(
         }
         return existing.id;
       }
+      requireCategoryApplicability(tx, input.categoryId, input.type);
       requireSupportedEffectiveDate(input.date, dependencies.now());
       const projectedBalance = checkedBalanceAdd(account.balance, signedAmount);
       if (input.type === 'expense') requireOverdraftConfirmation(account, projectedBalance, options);
@@ -176,6 +221,9 @@ export function createTransactionRepository<TRunResult>(
         .where(and(eq(accounts.id, existing.accountId), eq(accounts.userId, dependencies.userId))).limit(1).all();
       if (!existingAccount) throw new Error('Transaction account ownership is inconsistent.');
       if (existing.type === 'transfer') throw new Error(legacyTransferMutationError);
+      if (existing.type !== input.type || existing.categoryId !== input.categoryId) {
+        requireCategoryApplicability(tx, input.categoryId, input.type);
+      }
       requireSupportedEffectiveDate(input.date, dependencies.now(), existing.date);
       const [account] = tx.select({ id: accounts.id, name: accounts.name, balance: accounts.balance }).from(accounts)
         .where(and(eq(accounts.id, input.accountId), eq(accounts.userId, dependencies.userId))).limit(1).all();

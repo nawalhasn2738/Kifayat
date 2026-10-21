@@ -167,19 +167,62 @@ const stdev = (values: number[]) => {
   return values.length < 2 ? 0 : Math.sqrt(mean(values.map((value) => (value - average) ** 2)));
 };
 
+function forecastRange(values: number[]) {
+  const blend = Math.round(meanMoney(values));
+  const variation = Math.round(stdev(values));
+  return { blend, low: Math.max(0, blend - variation), high: blend + variation };
+}
+
 export function calculateForecast(
   transactions: Transaction[],
   asOf: Date,
   reportingMonths?: string[],
 ): Forecast {
-  const monthlyTotals = monthly(transactionsAtOrBefore(transactions, asOf));
-  const totals = reportingMonths
-    ? reportingMonths.map((month) => monthlyTotals.find((item) => item.month === month)?.expense ?? 0)
-    : monthlyTotals.slice(-3).map((item) => item.expense);
-  const blend = Math.round(meanMoney(totals)); const variation = Math.round(stdev(totals));
-  return { total: { blend, low: Math.max(0, blend - variation), high: blend + variation }, byCategory: {}, method: '3-month local mean ± standard deviation', asOf: asOf.toISOString() };
+  const eligibleTransactions = transactionsAtOrBefore(transactions, asOf);
+  const monthlyTotals = monthly(eligibleTransactions);
+  const months = reportingMonths ?? monthlyTotals.slice(-3).map((item) => item.month);
+  const totals = months.map((month) => monthlyTotals.find((item) => item.month === month)?.expense ?? 0);
+  const monthSet = new Set(months);
+  const uncategorizedKey = 'missing-category';
+  const categoryMonthlyTotals = new Map<string, { label: string; monthlyTotals: Map<string, number> }>();
+  for (const transaction of eligibleTransactions) {
+    if (transaction.type !== 'expense') continue;
+    const month = reportingMonthKey(transaction.date);
+    if (!monthSet.has(month)) continue;
+    const categoryKey = transaction.category ? `category:${transaction.category.id}` : uncategorizedKey;
+    const category = categoryMonthlyTotals.get(categoryKey) ?? {
+      label: transaction.category?.name ?? 'uncategorized',
+      monthlyTotals: new Map<string, number>(),
+    };
+    category.monthlyTotals.set(
+      month,
+      checkedMoneyAdd(category.monthlyTotals.get(month) ?? 0, absoluteMoney(transaction.amount)),
+    );
+    categoryMonthlyTotals.set(categoryKey, category);
+  }
+  const hasMissingCategory = categoryMonthlyTotals.has(uncategorizedKey);
+  const byCategory = Object.fromEntries(
+    [...categoryMonthlyTotals.entries()]
+      .map(([key, category]) => ({
+        key,
+        label: hasMissingCategory && key !== uncategorizedKey && category.label === 'uncategorized'
+          ? `uncategorized [category ${key.slice('category:'.length)}]`
+          : category.label,
+        monthlyTotals: category.monthlyTotals,
+      }))
+      .sort((left, right) => left.label.localeCompare(right.label))
+      .map(({ label, monthlyTotals: categoryMonths }) => [
+        label,
+        forecastRange(months.map((month) => categoryMonths.get(month) ?? 0)),
+      ]),
+  );
+  return {
+    total: forecastRange(totals),
+    byCategory,
+    method: '3-month mean ± population standard deviation using complete Karachi months',
+    asOf: asOf.toISOString(),
+  };
 }
-
 export function calculateRisk(
   summary: Summary,
   profile: { monthlyIncome: number },

@@ -12,7 +12,7 @@ The mobile client is the current local financial source of truth. It opens its o
 
 - Mobile reporting stores canonical UTC transaction instants and now uses the approved `Asia/Karachi` calendar utility for monthly buckets, current/previous-month selection, month-to-date categories, and projection boundaries.
 - Mobile savings are income minus expenses in each populated monthly bucket; transfers are excluded.
-- Mobile forecast readiness uses the three complete Karachi reporting months immediately before the current month, zero-fills qualifying post-start empty months, excludes the partial current month, and returns `forecast: null` with a stable reason when unavailable. Ready forecasts retain the existing total calculation; category forecast output remains empty.
+- Mobile forecast readiness uses the three complete Karachi reporting months immediately before the current month, zero-fills qualifying post-start empty months, excludes the partial current month, and returns `forecast: null` with a stable reason when unavailable. Ready forecasts apply the existing rounded mean and population-standard-deviation range to both the total and each expense category observed in the same qualifying window.
 - Mobile creation idempotency uses a unique client request ID. Identical reuse returns the existing row; conflicting or cross-user reuse is rejected. This is a local mutation contract, not a cross-device synchronization design.
 - The mobile schema has one account per transaction and no transfer link, destination account, explicit opening balance, refund link, category applicability type, or synchronization metadata.
 - Read-only reconciliation reports `candidate opening balance = stored balance - signed transaction effects` and does not repair data.
@@ -28,7 +28,7 @@ The mobile client is the current local financial source of truth. It opens its o
 | Forecast minimum | Three complete consecutive months after history begins | **APPROVED** |
 | Empty months | Zero-fill complete empty months after history begins | **APPROVED** |
 | Synchronization identity | Keep the current release local-only; design globally unique immutable operation IDs before sync | **PROPOSED — NOT YET APPROVED** |
-| Transfers | Dedicated transfer record with two linked, equal-and-opposite account effects | **PROPOSED — NOT YET APPROVED** |
+| Transfers | Dedicated transfer record with two equal-and-opposite account effects | **APPROVED AND IMPLEMENTED FOR MOBILE** |
 | Opening balances | Explicit signed integer opening balance per account, introduced through reconciliation-led migration | **PROPOSED — NOT YET APPROVED** |
 | Category applicability | Dedicated constrained applicability field, independent of display hierarchy | **PROPOSED — NOT YET APPROVED** |
 | Refunds | Linked refund records that reduce expenses in the refund posting period | **PROPOSED — NOT YET APPROVED** |
@@ -102,7 +102,7 @@ The separately reviewed additive schema migration is present in the current work
 
 ### Approval outcome
 
-Approved and implemented at schema/service level: an explicit persisted per-user history-start instant, using the earliest valid transaction only as a suggested date for existing users, with explicit confirmation/correction commands and no automatic backfill. The user-facing flow for users with or without transactions remains unimplemented.
+Approved and implemented: an explicit persisted per-user history-start instant, using the earliest valid transaction only as a suggested date for existing users, with explicit confirmation/correction commands and no automatic backfill. The Planning screen provides the user-facing confirmation, correction, and explicit missing-profile recovery flow; rendered emulator and physical-device behavior remains unverified.
 
 ## 3. Minimum forecast-history requirements
 
@@ -132,7 +132,7 @@ Require the three complete consecutive reporting months immediately before the c
 
 ### Migration and compatibility
 
-No persisted transaction values were rewritten. The mobile forecast response type and planning unavailable state now implement the contract, so existing users receive no numeric forecast until readiness is established. The missing history-start UI prevents users from completing that workflow in the current app. The legacy web forecast still lacks this readiness contract.
+No persisted transaction values were rewritten. The mobile forecast response type and planning unavailable state now implement the contract, so existing users receive no numeric forecast until readiness is established. The Planning screen lets users establish or correct history-start state through explicit service commands. The legacy web forecast still lacks this readiness contract, and rendered emulator and physical-device behavior remains unverified.
 
 ### Approval outcome
 
@@ -179,7 +179,7 @@ This subsection records the product owner's approved history-start, minimum-hist
 
 ### Current implementation evidence
 
-The current mobile schema includes nullable `financialHistoryStartedAt` profile state and an append-only confirmation/correction audit table. Services validate and display the canonical value, derive advisory suggestions without writing, explicitly recover a genuinely missing profile with a null start, and atomically confirm or correct the start with audit records. Forecast readiness reads that state, selects exactly the three immediately preceding complete `Asia/Karachi` months, zero-fills qualifying empty months, excludes the partial current month, and returns `forecast: null` with a stable reason when unavailable. Focused host-side tests cover these paths. No mobile screen currently exposes confirmation, correction, or recovery, and Expo SQLite device behavior remains unverified.
+The current mobile schema includes nullable `financialHistoryStartedAt` profile state and an append-only confirmation/correction audit table. Services validate and display the canonical value, derive advisory suggestions without writing, explicitly recover a genuinely missing profile with a null start, and atomically confirm or correct the start with audit records. Forecast readiness reads that state, selects exactly the three immediately preceding complete `Asia/Karachi` months, zero-fills qualifying empty months, excludes the partial current month, and returns `forecast: null` with a stable reason when unavailable. Focused host-side tests cover these paths. The Planning screen exposes confirmation, correction, and explicit missing-profile recovery. Expo SQLite device behavior remains unverified.
 
 ### Approved qualifying-history rules
 
@@ -266,7 +266,7 @@ Approve that Phase 3 remains local-only and that cross-device synchronization re
 
 ## 6. Transfer representation and reporting
 
-**Status: PROPOSED — NOT YET APPROVED**
+**Status: APPROVED AND IMPLEMENTED FOR MOBILE**
 
 ### Unresolved question
 
@@ -279,9 +279,9 @@ How should one logical transfer produce two atomic account effects while remaini
 3. A dedicated transfer entity plus two linked account-effect rows.
 4. Continue using unlinked positive and negative `transfer` rows.
 
-### Recommended option
+### Implemented decision
 
-Use a dedicated transfer entity plus two linked account-effect legs. The transfer stores user, positive whole-PKR amount, source account, destination account, effective instant, request identity, and descriptive fields. Its two effects are equal and opposite and are created, edited, or deleted atomically.
+Use a dedicated transfer entity whose source and destination account references define its two equal-and-opposite ledger effects. It stores the owning user, positive whole-PKR amount, both accounts, canonical effective instant, user-scoped request identity, and optional description. Creation, correction, deletion, and both stored-balance effects run atomically.
 
 Reporting must exclude both legs from income, expenses, and primary savings. Total net worth must not change. Account activity may show each directional effect, while transaction history may group them as one transfer. A savings-account transfer may be a separate contribution metric but is not earned savings.
 
@@ -294,15 +294,15 @@ Reporting must exclude both legs from income, expenses, and primary savings. Tot
 
 ### Migration and compatibility
 
-A reviewed migration is mandatory. Existing single-account legacy transfer rows cannot be assumed to form valid pairs; they require classification, pairing evidence, or preservation as read-only legacy records. Stored balances must not be silently recalculated. The legacy web seed’s conventionally paired rows are not structurally guaranteed pairs.
+A forward-only migration adds the dedicated transfers table without backfilling or changing existing transactions, accounts, or balances. Existing single-account legacy transfer rows remain readable and read-only; they are not paired, converted, or deleted.
 
-### Exact decision needed
+### Implemented limitations
 
-Approve the dedicated-transfer-plus-two-effects model, grouped presentation, transfer exclusion rules, and a non-destructive review policy for legacy transfer rows.
+Transfers reject source-account overdrafts, use no category, and retain exact idempotent retries while rejecting conflicting request reuse. Overall activity groups each transfer as one event. The app has no account-specific activity screen, and Expo device verification remains outstanding.
 
 ## 7. Opening-balance representation and reconciliation
 
-**Status: PROPOSED — NOT YET APPROVED**
+**Status: APPROVED**
 
 ### Unresolved question
 
@@ -335,6 +335,8 @@ For new accounts, require the user to enter or confirm the opening balance, defa
 ### Migration and compatibility
 
 This requires a reviewed migration and fixtures representing matched, nonzero-candidate, malformed, and legacy-transfer accounts. A candidate opening balance is diagnostic, not automatically trustworthy. Existing installations require confirmation or a documented review state before a candidate is accepted.
+
+Task 7 implements a nullable signed integer per account and an append-only audit. Null is unconfirmed; zero is confirmed only by explicit action. Existing and seeded accounts remain null. Ordinary effects and both owned sides of dedicated transfers contribute once to suggestions regardless of history start. Legacy single-account transfers or invalid dedicated-transfer relationships make reconciliation ambiguous and block confirmation or replacement. Corrections atomically apply `new current = current + (new opening - old opening)`. History-start changes never mutate either balance.
 
 ### Exact decision needed
 
@@ -466,12 +468,12 @@ Only explicitly approved decisions are checked below.
 - [x] Required regression, compatibility, service-contract, and UI tests approved.
 - [x] Design review and the current additive schema/migration were separately authorized and implemented; real-device migration and further schema work remain unapproved.
 - [ ] Local-only Phase 3 scope and separate future synchronization identity approved.
-- [ ] Dedicated transfer plus two linked effects and legacy review policy approved.
-- [ ] Explicit opening balance and reconciliation-led migration approved.
+- [x] Dedicated transfer with source/destination effects, grouped history, no-overdraft policy, and read-only legacy preservation approved and implemented.
+- [x] Explicit opening balance and reconciliation-led migration approved.
 - [ ] Authoritative category applicability model and mapping approved.
 - [ ] Linked refund and refund-period reporting policy approved.
 - [ ] Signed-total versus absolute-transaction formatting contract approved.
 
 ## Implementation gate
 
-This document is not authorization to modify code or data. Later task-specific approvals authorized the current additive schema/migration and history-start/readiness service implementation; they did not authorize further migrations, real-device data changes, user-facing workflow work, or unrelated policies. Cross-device synchronization, transfers, opening balances, category applicability, refunds, and signed formatting remain proposed and unapproved.
+This document records policy state but does not independently authorize further code or data changes. Later task-specific approvals authorized the current additive migrations and implemented history-start, readiness, category-applicability, signed-formatting, transfer, and opening-balance work. Cross-device synchronization and refunds remain proposed and unapproved. Real-device migration remains unverified.

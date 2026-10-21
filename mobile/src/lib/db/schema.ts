@@ -1,5 +1,5 @@
 import { relations, sql } from 'drizzle-orm';
-import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 export const users = sqliteTable('users', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -36,7 +36,20 @@ export const accounts = sqliteTable('accounts', {
   name: text('name').notNull(),
   type: text('type', { enum: ['checking', 'savings', 'cash'] }).notNull(),
   balance: integer('balance').notNull().default(0),
+  openingBalance: integer('opening_balance'),
 }, (table) => [uniqueIndex('accounts_user_name_unique').on(table.userId, table.name)]);
+
+export const openingBalanceAudit = sqliteTable('opening_balance_audit', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  accountId: integer('account_id').notNull().references(() => accounts.id, { onDelete: 'restrict' }),
+  previousOpeningBalance: integer('previous_opening_balance'),
+  newOpeningBalance: integer('new_opening_balance').notNull(),
+  changeKind: text('change_kind', { enum: ['confirmation', 'correction'] }).notNull(),
+  changedAt: text('changed_at').notNull(),
+}, (table) => [
+  index('opening_balance_audit_account_changed_idx').on(table.accountId, table.changedAt),
+  check('opening_balance_audit_kind_check', sql`${table.changeKind} in ('confirmation', 'correction')`),
+]);
 
 export const categories = sqliteTable('categories', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -45,6 +58,17 @@ export const categories = sqliteTable('categories', {
   isEssential: integer('is_essential', { mode: 'boolean' }).notNull().default(false),
   isHighRisk: integer('is_high_risk', { mode: 'boolean' }).notNull().default(false),
 });
+
+export const categoryApplicability = sqliteTable('category_applicability', {
+  categoryId: integer('category_id').notNull().references(() => categories.id, {
+    onUpdate: 'no action',
+    onDelete: 'cascade',
+  }),
+  transactionType: text('transaction_type', { enum: ['income', 'expense', 'transfer'] }).notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.categoryId, table.transactionType] }),
+  check('category_applicability_transaction_type_check', sql`${table.transactionType} in ('income', 'expense', 'transfer')`),
+]);
 
 export const transactions = sqliteTable('transactions', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -64,6 +88,26 @@ export const transactions = sqliteTable('transactions', {
   index('transactions_user_date_idx').on(table.userId, table.date),
   index('transactions_user_category_idx').on(table.userId, table.categoryId),
   index('transactions_account_idx').on(table.accountId),
+]);
+
+export const transfers = sqliteTable('transfers', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  clientId: text('client_id').notNull(),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  sourceAccountId: integer('source_account_id').notNull().references(() => accounts.id, { onDelete: 'restrict' }),
+  destinationAccountId: integer('destination_account_id').notNull().references(() => accounts.id, { onDelete: 'restrict' }),
+  amount: integer('amount').notNull(),
+  date: text('date').notNull(),
+  description: text('description'),
+  createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text('updated_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex('transfers_user_client_unique').on(table.userId, table.clientId),
+  index('transfers_user_date_idx').on(table.userId, table.date),
+  index('transfers_source_account_idx').on(table.sourceAccountId),
+  index('transfers_destination_account_idx').on(table.destinationAccountId),
+  check('transfers_distinct_accounts_check', sql`${table.sourceAccountId} <> ${table.destinationAccountId}`),
+  check('transfers_amount_check', sql`${table.amount} > 0 and ${table.amount} <= 2147483647`),
 ]);
 
 export const savingsGoals = sqliteTable('savings_goals', {
@@ -100,7 +144,15 @@ export const transactionRelations = relations(transactions, ({ one }) => ({
   account: one(accounts, { fields: [transactions.accountId], references: [accounts.id] }),
   category: one(categories, { fields: [transactions.categoryId], references: [categories.id] }),
 }));
+export const categoryRelations = relations(categories, ({ many }) => ({
+  applicability: many(categoryApplicability),
+}));
+export const categoryApplicabilityRelations = relations(categoryApplicability, ({ one }) => ({
+  category: one(categories, { fields: [categoryApplicability.categoryId], references: [categories.id] }),
+}));
 
 export type AccountRow = typeof accounts.$inferSelect;
 export type CategoryRow = typeof categories.$inferSelect;
+export type CategoryApplicabilityRow = typeof categoryApplicability.$inferSelect;
 export type TransactionRow = typeof transactions.$inferSelect;
+export type TransferRow = typeof transfers.$inferSelect;
