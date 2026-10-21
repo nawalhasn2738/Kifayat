@@ -2,12 +2,22 @@ import { listAccounts, listCategories } from '@/lib/repositories/catalog';
 import { OverdraftConfirmationRequiredError, type TransactionCreationOptions, type TransactionMutationOptions } from '@/lib/repositories/transactions-core';
 import { createTransaction, deleteTransaction, getTransaction, listTransactions, updateTransaction } from '@/lib/repositories/transactions';
 import { getAffordability, getForecast, getRisk, getSummary } from '@/lib/services/finance';
+import {
+  confirmFinancialHistoryStart,
+  correctFinancialHistoryStart,
+  getHistoryWorkflowState,
+  recoverFinancialProfile,
+} from '@/lib/services/history-workflow';
 import type { TransactionInput } from '@/lib/validation/transaction';
 
 export const AI_PROXY_URL = process.env.EXPO_PUBLIC_AI_PROXY_URL?.replace(/\/$/, '') ?? '';
 export const API_URL = 'Local SQLite';
 export const api = {
   summary: getSummary, risk: getRisk, forecast: getForecast, categories: listCategories, accounts: listAccounts,
+  historyState: getHistoryWorkflowState,
+  recoverFinancialProfile,
+  confirmFinancialHistoryStart,
+  correctFinancialHistoryStart,
   transactions: async (_page = 1, pageSize = 100) => ({ items: await listTransactions(pageSize), total: (await listTransactions(5000)).length, page: 1, pageSize }),
   transaction: async (id: number) => { const tx = await getTransaction(id); if (!tx) throw new Error('Transaction not found.'); return tx; },
   createTransaction: (input: TransactionInput, options: TransactionCreationOptions) => createTransaction(input, options),

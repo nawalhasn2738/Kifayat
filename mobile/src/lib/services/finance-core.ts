@@ -1,3 +1,4 @@
+import { reportingMonthKey, reportingMonthRange, reportingMonthStart } from '@/lib/finance/reporting-calendar';
 import type { Affordability, Forecast, Risk, Summary, Transaction } from '@/lib/types';
 import { validatePlanningHorizon } from '@/lib/validation/affordability';
 import { MAX_PKR_AMOUNT } from '@/lib/validation/transaction';
@@ -10,7 +11,6 @@ export type SummaryDependencies = {
   now: () => Date;
 };
 
-const key = (iso: string) => iso.slice(0, 7);
 const unsafeMoneyError = 'Financial reporting requires JavaScript safe integer monetary values.';
 const affordabilityMoneyError = 'Affordability requires safe whole-PKR monetary values.';
 
@@ -71,7 +71,7 @@ export function transactionsAtOrBefore(transactions: Transaction[], asOf: Date) 
 export function monthly(transactions: Transaction[]) {
   const buckets = new Map<string, { month: string; income: number; expense: number; savings: number }>();
   for (const tx of transactions) {
-    const month = key(tx.date);
+    const month = reportingMonthKey(tx.date);
     const bucket = buckets.get(month) ?? { month, income: 0, expense: 0, savings: 0 };
     if (tx.type === 'income') bucket.income = checkedMoneyAdd(bucket.income, tx.amount);
     if (tx.type === 'expense') bucket.expense = checkedMoneyAdd(bucket.expense, absoluteMoney(tx.amount));
@@ -81,9 +81,8 @@ export function monthly(transactions: Transaction[]) {
   return [...buckets.values()].sort((a, b) => a.month.localeCompare(b.month));
 }
 
-function monthKey(date: Date, offset = 0) {
-  const value = new Date(date.getFullYear(), date.getMonth() + offset, 1);
-  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}`;
+function previousReportingMonthKey(month: string) {
+  return reportingMonthKey(new Date(reportingMonthStart(month).getTime() - 1));
 }
 
 export function createSummaryService(dependencies: SummaryDependencies) {
@@ -92,16 +91,21 @@ export function createSummaryService(dependencies: SummaryDependencies) {
     const txs = transactionsAtOrBefore(allTransactions, asOf);
     const now = asOf;
     const totals = monthly(txs);
-    const current = totals.find((item) => item.month === monthKey(now));
-    const previous = totals.find((item) => item.month === monthKey(now, -1));
-    const recent = totals.filter((item) => item.month <= monthKey(now)).slice(-3);
+    const currentMonth = reportingMonthKey(now);
+    const currentMonthRange = reportingMonthRange(currentMonth);
+    const previousMonth = previousReportingMonthKey(currentMonth);
+    const current = totals.find((item) => item.month === currentMonth);
+    const previous = totals.find((item) => item.month === previousMonth);
+    const recent = totals.filter((item) => item.month <= currentMonth).slice(-3);
     const categoryMap = new Map<string, { category: string; total: number; count: number }>();
-    for (const tx of txs.filter((item) => item.type === 'expense' && key(item.date) === monthKey(now))) {
+    for (const tx of txs.filter((item) => item.type === 'expense' && reportingMonthKey(item.date) === currentMonth)) {
       const category = tx.category?.name ?? 'uncategorized';
       const row = categoryMap.get(category) ?? { category, total: 0, count: 0 };
       row.total = checkedMoneyAdd(row.total, absoluteMoney(tx.amount)); row.count += 1; categoryMap.set(category, row);
     }
-    const projected = Math.round((current?.expense ?? 0) / Math.max(1, now.getDate()) * new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate());
+    const elapsedDays = Math.floor((now.getTime() - currentMonthRange.start.getTime()) / 86_400_000) + 1;
+    const daysInMonth = Math.round((currentMonthRange.endExclusive.getTime() - currentMonthRange.start.getTime()) / 86_400_000);
+    const projected = Math.round((current?.expense ?? 0) / Math.max(1, elapsedDays) * daysInMonth);
     const incomeAvg = Math.round(meanMoney(recent.map((item) => item.income)));
     const spendingAvg = Math.round(meanMoney(recent.map((item) => item.expense)));
     const savingsAvg = Math.round(meanMoney(recent.map((item) => item.savings)));
@@ -163,8 +167,15 @@ const stdev = (values: number[]) => {
   return values.length < 2 ? 0 : Math.sqrt(mean(values.map((value) => (value - average) ** 2)));
 };
 
-export function calculateForecast(transactions: Transaction[], asOf: Date): Forecast {
-  const totals = monthly(transactionsAtOrBefore(transactions, asOf)).slice(-3).map((item) => item.expense);
+export function calculateForecast(
+  transactions: Transaction[],
+  asOf: Date,
+  reportingMonths?: string[],
+): Forecast {
+  const monthlyTotals = monthly(transactionsAtOrBefore(transactions, asOf));
+  const totals = reportingMonths
+    ? reportingMonths.map((month) => monthlyTotals.find((item) => item.month === month)?.expense ?? 0)
+    : monthlyTotals.slice(-3).map((item) => item.expense);
   const blend = Math.round(meanMoney(totals)); const variation = Math.round(stdev(totals));
   return { total: { blend, low: Math.max(0, blend - variation), high: blend + variation }, byCategory: {}, method: '3-month local mean ± standard deviation', asOf: asOf.toISOString() };
 }

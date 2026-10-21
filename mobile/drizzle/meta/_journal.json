@@ -8,6 +8,13 @@
       "when": 1792187918716,
       "tag": "0000_unknown_karma",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1792496617824,
+      "tag": "0001_sticky_thundra",
+      "breakpoints": true
     }
   ]
 }

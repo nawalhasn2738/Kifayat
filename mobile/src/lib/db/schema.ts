@@ -16,7 +16,19 @@ export const userProfiles = sqliteTable('user_profiles', {
   riskTolerance: text('risk_tolerance', { enum: ['low', 'medium', 'high'] }).notNull().default('medium'),
   dependents: integer('dependents').notNull().default(0),
   notesAboutSelf: text('notes_about_self'),
+  financialHistoryStartedAt: text('financial_history_started_at'),
 });
+
+export const financialHistoryStartAudit = sqliteTable('financial_history_start_audit', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  previousStartedAt: text('previous_started_at'),
+  newStartedAt: text('new_started_at').notNull(),
+  changeKind: text('change_kind', { enum: ['confirmation', 'correction'] }).notNull(),
+  changedAt: text('changed_at').notNull(),
+}, (table) => [
+  index('financial_history_start_audit_user_changed_idx').on(table.userId, table.changedAt),
+]);
 
 export const accounts = sqliteTable('accounts', {
   id: integer('id').primaryKey({ autoIncrement: true }),

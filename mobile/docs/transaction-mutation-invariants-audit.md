@@ -2,7 +2,7 @@
 
 ## Scope and evidence
 
-This audit records the current mobile income/expense mutation invariants after Phase 1. Evidence comes from `repositories/transactions-core.ts`, the schema and migration, `transaction-validation.test.ts`, and the in-memory `repository-integration.test.mjs` suite. Static structure is not treated as runtime proof. The verified local baseline is Windows x64, Node 24.14.0, npm 11.9.0, with 32 tests passing.
+This audit records the mobile income/expense mutation invariants established through Phase 2 and preserved by the Phase 3 work. Evidence comes from `repositories/transactions-core.ts`, the schema and migration chain, `transaction-validation.test.ts`, and the in-memory repository suite. Static structure is not treated as runtime proof. On October 21, 2026, `npm test` from `mobile/` passed 146 host-side tests with 0 failures; this does not establish Expo SQLite device parity.
 
 ## Invariant matrix
 
@@ -24,7 +24,7 @@ This audit records the current mobile income/expense mutation invariants after P
 | Legacy transfer update/delete | Existing transfer rows are loaded and ownership-checked, then rejected before any row or balance write. | Direct legacy fixtures prove update/delete rejection and complete snapshot equality. | **PASS** | Full transfer support remains deferred. |
 | Category existence | Positive ID or null is accepted; SQLite FK enforcement rejects nonexistent IDs when enabled. | Contract smoke tests prove FK enforcement generally; no category-specific repository mutation test. | **PARTIAL** | Add focused tests if this becomes a Phase 2 mutation requirement. |
 | Category applicability | No authoritative type field or constraint exists; UI parent filtering is not repository policy. | No mismatch test can be authoritative under the current model. | **MISSING** | Await the documented category policy decision. |
-| Client ID idempotency | Client IDs are unique, but each create generates a new value. | No retry-identity test exists. | **PARTIAL** | Define caller retry identity before claiming idempotency. |
+| Client ID idempotency | The current mobile create flow requires a non-empty client request ID. Identical reuse returns the existing row without a second balance effect; conflicting or cross-user reuse rejects. | Replay, conflict, rollback retry, overdraft replay, and same-tick duplicate tests pass. | **PASS FOR CURRENT MOBILE CREATE FLOW** | This does not define cross-device synchronization or idempotency for the separate web API. |
 | Hard deletion | No soft-delete field exists; supported deletion physically removes the row. | Happy-path and rollback tests cover hard deletion. | **NOT APPLICABLE** | Soft deletion is explicitly future scope. |
 
 ## Confirmed mutation flow
@@ -59,7 +59,7 @@ This audit records the current mobile income/expense mutation invariants after P
 ## Remaining decisions and limitations
 
 - Category applicability has no approved authoritative representation.
-- Stable retry/idempotency semantics remain undefined.
+- Mobile create idempotency is defined and tested; cross-device synchronization and a corresponding web API contract remain undefined.
 - SQLite type/sign constraints require a reviewed migration and legacy-data policy.
 - Ubuntu/Node 22 and Expo SQLite device/emulator parity remain unverified.
 - React Native overdraft dialog behavior lacks automated component tests.

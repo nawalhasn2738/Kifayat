@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import Database from 'better-sqlite3';
 import { asc, eq } from 'drizzle-orm';
@@ -9,24 +8,17 @@ import { createCatalogRepository } from '../src/lib/repositories/catalog-core.ts
 import { createTransactionRepository } from '../src/lib/repositories/transactions-core.ts';
 import { calculateAffordability, createSummaryService } from '../src/lib/services/finance-core.ts';
 import { MAX_PKR_AMOUNT, parsePkrAmount } from '../src/lib/validation/transaction.ts';
+import { migrateWithExpoPath } from './helpers/migration-chain.mjs';
 
-const migration = readFileSync(new URL('../drizzle/0000_unknown_karma.sql', import.meta.url), 'utf8');
-const statementBreakpoint = '--> statement-breakpoint';
 const localUserId = 101;
 const otherUserId = 202;
-
-function applyMigration(sqlite) {
-  for (const statement of migration.split(statementBreakpoint)) {
-    if (statement.trim()) sqlite.exec(statement);
-  }
-}
 
 async function withFixture(run) {
   const sqlite = new Database(':memory:');
   try {
     sqlite.pragma('foreign_keys = ON');
     assert.equal(sqlite.pragma('foreign_keys', { simple: true }), 1);
-    applyMigration(sqlite);
+    await migrateWithExpoPath(sqlite);
     const database = drizzle(sqlite, { schema });
     await database.insert(schema.users).values([
       { id: localUserId, email: 'local@example.test', name: 'Local User' },

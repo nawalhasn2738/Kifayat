@@ -1,13 +1,17 @@
 import { getProfile, listAccounts, listCategories } from '@/lib/repositories/catalog';
 import { listAllTransactions } from '@/lib/repositories/transactions';
-import { calculateAffordability, calculateForecast, calculateRisk, createSummaryService } from '@/lib/services/finance-core';
-import type { Affordability, Forecast, Risk } from '@/lib/types';
+import { calculateAffordability, calculateRisk, createSummaryService } from '@/lib/services/finance-core';
+import { createForecastReadinessService } from '@/lib/services/forecast-readiness-core';
+import { getFinancialHistoryState } from '@/lib/services/history-start-state';
+import type { Affordability, Risk } from '@/lib/types';
 
 export const getSummary = createSummaryService({ listAccounts, listAllTransactions, now: () => new Date() });
 
-export async function getForecast(asOf = new Date()): Promise<Forecast> {
-  return calculateForecast(await listAllTransactions(), asOf);
-}
+export const getForecast = createForecastReadinessService({
+  getFinancialHistoryState,
+  listAllTransactions,
+  now: () => new Date(),
+});
 
 export async function getRisk(asOf = new Date()): Promise<Risk> {
   const [summary, profile, categories, transactions] = await Promise.all([getSummary(asOf), getProfile(), listCategories(), listAllTransactions()]);

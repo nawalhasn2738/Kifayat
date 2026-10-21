@@ -33,6 +33,28 @@ export type Forecast = {
   method: string;
   asOf: string;
 };
+export type ForecastReadinessReason =
+  | 'history_start_unconfirmed'
+  | 'insufficient_complete_months'
+  | 'invalid_history_start';
+export type ForecastResult =
+  | {
+    status: 'ready';
+    forecast: Forecast;
+    requiredCompleteMonths: 3;
+    availableCompleteMonths: 3;
+    qualifyingMonths: string[];
+    guidance: string;
+  }
+  | {
+    status: 'insufficient_history';
+    forecast: null;
+    reason: ForecastReadinessReason;
+    requiredCompleteMonths: 3;
+    availableCompleteMonths: number;
+    qualifyingMonths: string[];
+    guidance: string;
+  };
 export type Risk = { score: number; band: 'low' | 'moderate' | 'high'; reasons: string[] };
 export type Affordability = {
   canAfford: boolean;

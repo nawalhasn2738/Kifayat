@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { calculateForecast, calculateRisk, createSummaryService } from '../src/lib/services/finance-core';
+import { calculateForecast, calculateRisk, createSummaryService, monthly } from '../src/lib/services/finance-core';
 import type { Transaction } from '../src/lib/types';
 
 const now = new Date('2026-10-19T12:00:00.000Z');
@@ -16,6 +16,7 @@ function transaction(amount: number, type: Transaction['type'], date = '2026-10-
 async function summary(
   transactions: Transaction[] = [],
   accounts: { name: string; type: string; balance: number }[] = [],
+  asOf = now,
 ) {
   return createSummaryService({
     listAccounts: async () => accounts,
@@ -23,8 +24,8 @@ async function summary(
       assert.deepEqual(args, []);
       return transactions;
     },
-    now: () => now,
-  })();
+    now: () => asOf,
+  })(asOf);
 }
 
 test('finance reporting: savings and rate equal income minus expenses for the same month', async () => {
@@ -84,6 +85,47 @@ test('finance reporting: monthly savings remain isolated by reporting bucket', a
     { month: '2026-10', income: 100_000, expense: 70_000, savings: 30_000 },
   ]);
   assert.equal(result.savings.thisMonth, 30_000);
+});
+
+test('finance reporting: buckets exact Karachi boundaries as start-inclusive and end-exclusive', () => {
+  const result = monthly([
+    transaction(100, 'income', '2026-04-30T18:59:59.999Z'),
+    transaction(200, 'income', '2026-04-30T19:00:00.000Z'),
+    transaction(-40, 'expense', '2026-05-31T18:59:59.999Z'),
+    transaction(-80, 'expense', '2026-05-31T19:00:00.000Z'),
+  ]);
+
+  assert.deepEqual(result, [
+    { month: '2026-04', income: 100, expense: 0, savings: 100 },
+    { month: '2026-05', income: 200, expense: 40, savings: 160 },
+    { month: '2026-06', income: 0, expense: 80, savings: -80 },
+  ]);
+});
+
+test('finance reporting: current and previous Karachi months do not depend on the host timezone', async () => {
+  const original = process.env.TZ;
+  const asOf = new Date('2026-04-30T20:00:00.000Z');
+  const transactions = [
+    transaction(100, 'income', '2026-04-30T18:59:59.999Z'),
+    transaction(200, 'income', '2026-04-30T19:00:00.000Z'),
+    transaction(-50, 'expense', '2026-04-30T19:30:00.000Z'),
+  ];
+
+  try {
+    process.env.TZ = 'UTC';
+    const utcHost = await summary(transactions, [], asOf);
+    process.env.TZ = 'America/Los_Angeles';
+    const pacificHost = await summary(transactions, [], asOf);
+
+    assert.deepEqual(pacificHost, utcHost);
+    assert.equal(utcHost.income.lastMonth, 100);
+    assert.equal(utcHost.income.thisMonth, 200);
+    assert.equal(utcHost.spend.thisMonthMTD, 50);
+    assert.deepEqual(utcHost.topCategoriesMTD, [{ category: 'uncategorized', total: 50, count: 1 }]);
+  } finally {
+    if (original === undefined) delete process.env.TZ;
+    else process.env.TZ = original;
+  }
 });
 
 test('finance reporting: empty data preserves zero-valued summary behavior', async () => {
