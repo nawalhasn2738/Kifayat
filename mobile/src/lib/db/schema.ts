@@ -37,7 +37,11 @@ export const accounts = sqliteTable('accounts', {
   type: text('type', { enum: ['checking', 'savings', 'cash'] }).notNull(),
   balance: integer('balance').notNull().default(0),
   openingBalance: integer('opening_balance'),
-}, (table) => [uniqueIndex('accounts_user_name_unique').on(table.userId, table.name)]);
+  archivedAt: text('archived_at'),
+}, (table) => [
+  uniqueIndex('accounts_user_name_unique').on(table.userId, table.name),
+  uniqueIndex('accounts_user_name_nocase_unique').on(table.userId, sql`lower(${table.name})`),
+]);
 
 export const openingBalanceAudit = sqliteTable('opening_balance_audit', {
   id: integer('id').primaryKey({ autoIncrement: true }),

@@ -183,7 +183,8 @@ export function createTransactionRepository<TRunResult>(
     if (!options.clientId.trim()) throw new Error('A transaction request ID is required.');
     const signedAmount = input.type === 'income' ? input.amount : -input.amount;
     const insertedId = database.transaction((tx) => {
-      const [account] = tx.select({ id: accounts.id, name: accounts.name, balance: accounts.balance }).from(accounts)
+      const [account] = tx.select({ id: accounts.id, name: accounts.name, balance: accounts.balance,
+        archivedAt: accounts.archivedAt }).from(accounts)
         .where(and(eq(accounts.id, input.accountId), eq(accounts.userId, dependencies.userId))).limit(1).all();
       if (!account) throw new Error('The selected account no longer exists.');
       const [existing] = tx.select().from(transactions).where(eq(transactions.clientId, options.clientId)).limit(1).all();
@@ -194,6 +195,7 @@ export function createTransactionRepository<TRunResult>(
         }
         return existing.id;
       }
+      if (account.archivedAt !== null) throw new Error('Archived accounts cannot receive new transactions.');
       requireCategoryApplicability(tx, input.categoryId, input.type);
       requireSupportedEffectiveDate(input.date, dependencies.now());
       const projectedBalance = checkedBalanceAdd(account.balance, signedAmount);
@@ -225,9 +227,13 @@ export function createTransactionRepository<TRunResult>(
         requireCategoryApplicability(tx, input.categoryId, input.type);
       }
       requireSupportedEffectiveDate(input.date, dependencies.now(), existing.date);
-      const [account] = tx.select({ id: accounts.id, name: accounts.name, balance: accounts.balance }).from(accounts)
+      const [account] = tx.select({ id: accounts.id, name: accounts.name, balance: accounts.balance,
+        archivedAt: accounts.archivedAt }).from(accounts)
         .where(and(eq(accounts.id, input.accountId), eq(accounts.userId, dependencies.userId))).limit(1).all();
       if (!account) throw new Error('The selected account no longer exists.');
+      if (input.accountId !== existing.accountId && account.archivedAt !== null) {
+        throw new Error('Archived accounts cannot receive reassigned transactions.');
+      }
       const signedAmount = input.type === 'income' ? input.amount : -input.amount;
       const reversedExistingBalance = checkedBalanceSubtract(existingAccount.balance, existing.amount);
       const projectedBalance = existing.accountId === input.accountId

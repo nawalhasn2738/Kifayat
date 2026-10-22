@@ -1,4 +1,5 @@
-import { listAccounts, listCategories } from '@/lib/repositories/catalog';
+import { listAccounts, listActiveAccounts, listCategories } from '@/lib/repositories/catalog';
+import { archiveAccount, createAccount, deleteUnusedAccount, listManagedAccounts, renameAccount, restoreAccount } from '@/lib/repositories/accounts';
 import { CategoryApplicabilityError, OverdraftConfirmationRequiredError, type CategoryApplicabilityErrorCode, type TransactionCreationOptions, type TransactionMutationOptions } from '@/lib/repositories/transactions-core';
 import { createTransaction, deleteTransaction, getTransaction, listTransactions, updateTransaction } from '@/lib/repositories/transactions';
 import { getAffordability, getForecast, getRisk, getSummary } from '@/lib/services/finance';
@@ -16,7 +17,9 @@ import { confirmOpeningBalance, correctOpeningBalance, getOpeningBalanceState } 
 export const AI_PROXY_URL = process.env.EXPO_PUBLIC_AI_PROXY_URL?.replace(/\/$/, '') ?? '';
 export const API_URL = 'Local SQLite';
 export const api = {
-  summary: getSummary, risk: getRisk, forecast: getForecast, categories: listCategories, accounts: listAccounts,
+  summary: getSummary, risk: getRisk, forecast: getForecast, categories: listCategories,
+  accounts: listAccounts, activeAccounts: listActiveAccounts, managedAccounts: listManagedAccounts,
+  createAccount, renameAccount, archiveAccount, restoreAccount, deleteUnusedAccount,
   historyState: getHistoryWorkflowState,
   recoverFinancialProfile,
   confirmFinancialHistoryStart,

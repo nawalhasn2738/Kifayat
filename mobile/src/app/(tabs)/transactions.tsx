@@ -60,7 +60,7 @@ function TransactionRow({ item }: { item: Transaction }) {
   return (
     <Card>
       <View style={local.row}>
-        <View style={[local.icon, { backgroundColor: positive ? '#123b30' : negative ? '#421e29' : palette.border }]}>
+        <View style={[local.icon, { backgroundColor: positive ? palette.successSurface : negative ? palette.errorSurface : palette.surfaceMuted }]}>
           <Text style={{ color: positive ? palette.success : negative ? palette.danger : palette.muted }}>{positive ? '↑' : negative ? '↓' : '•'}</Text>
         </View>
         <View style={local.detail}>

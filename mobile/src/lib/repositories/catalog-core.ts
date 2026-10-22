@@ -44,6 +44,9 @@ export function createCatalogRepository<TRunResult>(
 ) {
   const listAccounts = () => database.select().from(accounts)
     .where(eq(accounts.userId, dependencies.userId)).orderBy(asc(accounts.name));
+  const listActiveAccounts = () => database.select().from(accounts)
+    .where(and(eq(accounts.userId, dependencies.userId), eq(accounts.archivedAt, null)))
+    .orderBy(asc(accounts.name));
 
   async function listCategories(): Promise<CatalogCategory[]> {
     const [categoryRows, applicabilityRows] = await Promise.all([
@@ -111,5 +114,5 @@ export function createCatalogRepository<TRunResult>(
     return profile;
   }
 
-  return { listAccounts, listCategories, getProfile, reconcileAccountBalances };
+  return { listAccounts, listActiveAccounts, listCategories, getProfile, reconcileAccountBalances };
 }

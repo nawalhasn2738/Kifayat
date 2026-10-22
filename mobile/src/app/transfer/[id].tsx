@@ -42,5 +42,5 @@ const local = StyleSheet.create({
   detail: { borderTopColor: palette.border, borderTopWidth: 1, paddingTop: 11, gap: 3 },
   label: { color: palette.muted, fontSize: 11, fontWeight: '700', textTransform: 'uppercase' },
   value: { color: palette.text, fontSize: 15 },
-  delete: { color: '#ff7b7b', textAlign: 'center', padding: 14, fontWeight: '700' },
+  delete: { color: palette.error, textAlign: 'center', padding: 14, fontWeight: '700' },
 });

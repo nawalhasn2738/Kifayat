@@ -1,5 +1,6 @@
 import { Tabs, router } from 'expo-router';
 import { Pressable, StyleSheet, Text } from 'react-native';
+import { borders, colors, controlHeights, radii, spacing, typography } from '@/theme/tokens';
 
 const icons: Record<string, string> = {
   index: '⌂',
@@ -12,14 +13,15 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={({ route }) => ({
-        headerStyle: { backgroundColor: '#0b0d12' },
-        headerTintColor: '#f4f4f5',
+        headerStyle: { backgroundColor: colors.surface },
+        headerTintColor: colors.textPrimary,
         headerTitleStyle: { fontWeight: '700' },
-        sceneStyle: { backgroundColor: '#0b0d12' },
-        tabBarStyle: { backgroundColor: '#131722', borderTopColor: '#252b3d', height: 66 },
-        tabBarActiveTintColor: '#8b72ff',
-        tabBarInactiveTintColor: '#8b90a3',
-        tabBarLabelStyle: { fontSize: 11, paddingBottom: 5 },
+        headerShadowVisible: false,
+        sceneStyle: { backgroundColor: colors.canvas },
+        tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border, borderTopWidth: borders.hairline, height: 66 },
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.textDisabled,
+        tabBarLabelStyle: { ...typography.caption, paddingBottom: spacing.xs },
         tabBarIcon: ({ color }) => (
           <Text style={{ color, fontSize: 20 }}>{icons[route.name] ?? '•'}</Text>
         ),
@@ -47,7 +49,7 @@ export default function TabLayout() {
 }
 
 const styles = StyleSheet.create({
-  headerButton: { marginRight: 14, minHeight: 36, justifyContent: 'center', paddingHorizontal: 12, borderRadius: 10, backgroundColor: '#8b72ff' },
-  pressed: { opacity: 0.65 },
-  headerButtonText: { color: '#fff', fontWeight: '800' },
+  headerButton: { marginRight: 14, minHeight: controlHeights.minimum, justifyContent: 'center', paddingHorizontal: spacing.md, borderRadius: radii.control, backgroundColor: colors.primary },
+  pressed: { backgroundColor: colors.primaryPressed },
+  headerButtonText: { color: colors.surface, ...typography.button },
 });

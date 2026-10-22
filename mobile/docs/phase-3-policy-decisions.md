@@ -4,7 +4,7 @@
 
 This record captures approved and proposed answers to financial-policy questions identified after Phase 2. It is documentation only and does not itself implement application behavior, schema changes, migrations, synchronization, or revised calculations.
 
-The reporting-timezone and forecast-readiness policies are **APPROVED**. Every unrelated policy below remains **PROPOSED — NOT YET APPROVED** and must be approved, rejected, or amended by the product owner before implementation begins.
+The reporting-timezone, forecast-readiness, dedicated-transfer, opening-balance, category-applicability, and signed-formatting policies are **APPROVED** and implemented on mobile. Cross-device synchronization and refunds remain **PROPOSED — NOT YET APPROVED**. Implementation evidence is host-side unless device verification is stated explicitly.
 
 The mobile client is the current local financial source of truth. It opens its own Expo SQLite `kifayat.db` through Drizzle. The retained web application uses Prisma and its separately configured `DATABASE_URL`; its calculations and records are not a shared live mobile ledger. Where mobile and legacy web behavior differ, this record treats them separately.
 
@@ -14,9 +14,9 @@ The mobile client is the current local financial source of truth. It opens its o
 - Mobile savings are income minus expenses in each populated monthly bucket; transfers are excluded.
 - Mobile forecast readiness uses the three complete Karachi reporting months immediately before the current month, zero-fills qualifying post-start empty months, excludes the partial current month, and returns `forecast: null` with a stable reason when unavailable. Ready forecasts apply the existing rounded mean and population-standard-deviation range to both the total and each expense category observed in the same qualifying window.
 - Mobile creation idempotency uses a unique client request ID. Identical reuse returns the existing row; conflicting or cross-user reuse is rejected. This is a local mutation contract, not a cross-device synchronization design.
-- The mobile schema has one account per transaction and no transfer link, destination account, explicit opening balance, refund link, category applicability type, or synchronization metadata.
+- Ordinary transactions retain one account per row. Dedicated transfers have source and destination accounts; accounts have nullable opening balances; categories use a normalized applicability relation. Refund linkage and synchronization metadata are not implemented.
 - Read-only reconciliation reports `candidate opening balance = stored balance - signed transaction effects` and does not repair data.
-- `formatPKR` currently removes signs with `Math.abs`, including for values where a negative sign is financially meaningful.
+- General PKR formatting preserves signed safe-integer values. Transaction presentation separately renders an explicit sign and magnitude with tone derived from the signed amount.
 - Legacy web reporting still derives its separate savings figure from negative transfer rows. That rule is not proposed for mobile.
 
 ## Decision summary
@@ -29,10 +29,10 @@ The mobile client is the current local financial source of truth. It opens its o
 | Empty months | Zero-fill complete empty months after history begins | **APPROVED** |
 | Synchronization identity | Keep the current release local-only; design globally unique immutable operation IDs before sync | **PROPOSED — NOT YET APPROVED** |
 | Transfers | Dedicated transfer record with two equal-and-opposite account effects | **APPROVED AND IMPLEMENTED FOR MOBILE** |
-| Opening balances | Explicit signed integer opening balance per account, introduced through reconciliation-led migration | **PROPOSED — NOT YET APPROVED** |
-| Category applicability | Dedicated constrained applicability field, independent of display hierarchy | **PROPOSED — NOT YET APPROVED** |
+| Opening balances | Explicit nullable signed integer opening balance per account with append-only audit | **APPROVED AND IMPLEMENTED FOR MOBILE** |
+| Category applicability | Normalized constrained applicability relation, independent of display hierarchy | **APPROVED AND IMPLEMENTED FOR MOBILE** |
 | Refunds | Linked refund records that reduce expenses in the refund posting period | **PROPOSED — NOT YET APPROVED** |
-| Signed formatting | Signed totals/availability; absolute transaction amounts with explicit direction | **PROPOSED — NOT YET APPROVED** |
+| Signed formatting | Signed totals/availability; transaction magnitude with explicit signed direction and tone | **APPROVED AND IMPLEMENTED FOR MOBILE** |
 
 ## 1. Reporting timezone and calendar-month boundaries
 
@@ -58,6 +58,7 @@ This is preferred over device-local time because travel or a device setting chan
 ### Effects
 
 - Reporting: dashboard, category, savings, risk, and monthly totals use the same month boundaries.
+- Risk: the approved evaluation window is the current partial Karachi reporting month plus the two immediately preceding complete Karachi months, represented as `[oldestMonthStart, asOf]`.
 - Forecasts: the current partial month and three preceding complete months become deterministic.
 - Balances: no balance arithmetic changes; only period attribution changes.
 - User experience: month totals remain stable when the device timezone changes.
@@ -68,7 +69,7 @@ No transaction timestamp rewrite is recommended. Existing UTC instants should be
 
 ### Approval record
 
-The product owner explicitly approved this policy for Mini-task 3.3. Mini-task 3.3 added the named-timezone calendar utility and focused boundary tests. Mini-task 3.7 integrated that utility into `finance-core.ts` monthly reporting. Transaction timestamps remain canonical UTC instants; no forecast-readiness policy was approved by that integration.
+The product owner explicitly approved this policy for Mini-task 3.3. Mini-task 3.3 added the named-timezone calendar utility and focused boundary tests. Mini-task 3.7 integrated that utility into `finance-core.ts` monthly reporting. A subsequent explicit product-owner decision approved and integrated the current partial month plus two preceding complete months as the financial-risk window. Transaction timestamps remain canonical UTC instants; the risk-window approval does not change forecast readiness.
 
 ## 2. Beginning of usable financial history
 
@@ -302,9 +303,9 @@ Transfers reject source-account overdrafts, use no category, and retain exact id
 
 ## 7. Opening-balance representation and reconciliation
 
-**Status: APPROVED**
+**Status: APPROVED AND IMPLEMENTED FOR MOBILE**
 
-### Unresolved question
+### Resolved question
 
 How should pre-Kifayat money be represented without fabricating historical transactions or changing existing stored balances?
 
@@ -315,7 +316,7 @@ How should pre-Kifayat money be represented without fabricating historical trans
 3. Derive opening balance on every read from stored balance minus transactions.
 4. Reset existing balances to the sum of recorded transactions.
 
-### Recommended option
+### Implemented decision
 
 Store an explicit signed whole-PKR `openingBalance` per account, distinct from ordinary income and transactions. Preserve the invariant:
 
@@ -334,19 +335,19 @@ For new accounts, require the user to enter or confirm the opening balance, defa
 
 ### Migration and compatibility
 
-This requires a reviewed migration and fixtures representing matched, nonzero-candidate, malformed, and legacy-transfer accounts. A candidate opening balance is diagnostic, not automatically trustworthy. Existing installations require confirmation or a documented review state before a candidate is accepted.
+Migration `0004` and focused fixtures implement the nullable opening-balance and append-only-audit structure. A candidate remains diagnostic rather than automatically trustworthy; existing installations require explicit confirmation before it is accepted.
 
 Task 7 implements a nullable signed integer per account and an append-only audit. Null is unconfirmed; zero is confirmed only by explicit action. Existing and seeded accounts remain null. Ordinary effects and both owned sides of dedicated transfers contribute once to suggestions regardless of history start. Legacy single-account transfers or invalid dedicated-transfer relationships make reconciliation ambiguous and block confirmation or replacement. Corrections atomically apply `new current = current + (new opening - old opening)`. History-start changes never mutate either balance.
 
-### Exact decision needed
+### Implementation status
 
-Approve a signed integer per-account opening balance, exclusion from performance reporting, and a migration that preserves stored balances while requiring review of derived candidates.
+The approved nullable signed integer per-account opening balance, exclusion from performance reporting, reconciliation-led confirmation/correction workflow, and append-only audit are implemented. Existing balances are preserved; suggestions are advisory and ambiguous ledgers fail closed. Expo SQLite device verification remains deferred.
 
 ## 8. Authoritative category/type applicability
 
-**Status: PROPOSED — NOT YET APPROVED**
+**Status: APPROVED AND IMPLEMENTED FOR MOBILE**
 
-### Unresolved question
+### Resolved question
 
 How should the repository decide whether a category is valid for an income, expense, transfer, or future refund?
 
@@ -357,9 +358,9 @@ How should the repository decide whether a category is valid for an income, expe
 3. Add one constrained category type.
 4. Add an explicit constrained applicability model capable of representing one or more allowed financial types.
 
-### Recommended option
+### Implemented decision
 
-Add an explicit constrained applicability model independent of display hierarchy. For the current single-purpose seed categories, an enum-like value such as `income`, `expense`, or `transfer` is sufficient; if product requirements need a category valid for multiple types, use a normalized applicability relation or validated set rather than overloading `parent`.
+Use the normalized `category_applicability(category_id, transaction_type)` relation, independent of display hierarchy. Multiple applicability is possible only through explicit rows; `parent` remains display-only metadata.
 
 Repository validation must be authoritative. `parent` remains presentation/grouping metadata. `null` category remains allowed for income and expense unless separately prohibited.
 
@@ -372,11 +373,11 @@ Repository validation must be authoritative. `parent` remains presentation/group
 
 ### Migration and compatibility
 
-Requires a reviewed mapping for every existing category, especially `savings_transfer`, `anomaly`, and any user-created or arbitrary-parent rows. Unknown mappings must be surfaced for review rather than inferred from names. SQL constraints may require a SQLite table rebuild.
+Migration `0002` adds the normalized relation and explicit approved seed mappings. `salary` and `freelance` map to income; the approved spending categories map to expense. `anomaly`, `savings_transfer`, and custom categories remain unmapped unless explicitly configured. Historical assignments remain readable; new assignments fail closed with distinct not-found, unmapped, or incompatible outcomes. Expo SQLite device verification remains deferred.
 
-### Exact decision needed
+### Approval and implementation record
 
-Approve a dedicated constrained applicability model, decide whether categories may apply to multiple financial types, and approve the migration mapping for all existing category data.
+The normalized applicability model, multiple-applicability rule, seed mapping, unmapped-category handling, and repository enforcement were explicitly approved and implemented.
 
 ## 9. Refund representation and reporting periods
 
@@ -414,9 +415,9 @@ Approve linked refunds, refund-period expense reduction rather than original-per
 
 ## 10. Negative balance/availability display and signed PKR formatting
 
-**Status: PROPOSED — NOT YET APPROVED**
+**Status: APPROVED AND IMPLEMENTED FOR MOBILE**
 
-### Unresolved question
+### Resolved question
 
 Which monetary values should display a negative sign, and which should display an absolute amount with a separate direction indicator?
 
@@ -426,7 +427,7 @@ Which monetary values should display a negative sign, and which should display a
 2. Always render the stored signed number.
 3. Use separate signed-total and absolute-transaction formatters according to financial meaning.
 
-### Recommended option
+### Implemented decision
 
 Use separate formatting contracts:
 
@@ -445,11 +446,11 @@ Use integer PKR storage unchanged; formatting must not round or alter persisted 
 
 ### Migration and compatibility
 
-No database migration is required. UI call sites and accessibility labels require review and focused tests. Existing screenshots or snapshots may change.
+No database migration was required. Mobile formatter call sites and focused tests were updated; rendered screenshots and device typography remain unverified.
 
-### Exact decision needed
+### Implementation status
 
-Approve separate signed-total and absolute-transaction formatting contracts, including the listed fields that must preserve signs.
+The mobile formatter preserves signed safe-integer totals, normalizes negative zero, and rejects unavailable or invalid money values. Transaction presentation separates magnitude from an explicit sign and derives tone from the stored signed amount. Rendered emulator/physical-device verification remains deferred.
 
 ## Approval checklist
 
@@ -470,9 +471,9 @@ Only explicitly approved decisions are checked below.
 - [ ] Local-only Phase 3 scope and separate future synchronization identity approved.
 - [x] Dedicated transfer with source/destination effects, grouped history, no-overdraft policy, and read-only legacy preservation approved and implemented.
 - [x] Explicit opening balance and reconciliation-led migration approved.
-- [ ] Authoritative category applicability model and mapping approved.
+- [x] Normalized authoritative category applicability model and approved seed mapping implemented.
 - [ ] Linked refund and refund-period reporting policy approved.
-- [ ] Signed-total versus absolute-transaction formatting contract approved.
+- [x] Signed-total versus transaction direction-and-magnitude formatting contract implemented.
 
 ## Implementation gate
 

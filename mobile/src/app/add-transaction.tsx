@@ -11,7 +11,11 @@ export default function AddTransactionScreen() {
   const { id: rawId } = useLocalSearchParams<{ id?: string }>();
   const editId = rawId ? Number.parseInt(Array.isArray(rawId) ? rawId[0] : rawId, 10) : null;
   const load = useCallback(async () => {
-    const [categories, accounts, summary, transaction] = await Promise.all([api.categories(), api.accounts(), api.summary(), editId ? api.transaction(editId) : null]);
+    const [categories, accounts, summary, transaction] = await Promise.all([api.categories(), api.activeAccounts(), api.summary(), editId ? api.transaction(editId) : null]);
+    if (transaction && !accounts.some((account) => account.id === transaction.account.id)) {
+      const historical = (await api.accounts()).find((account) => account.id === transaction.account.id);
+      if (historical) accounts.push(historical);
+    }
     return { categories, accounts, summary, transaction };
   }, [editId]);
   const { data, loading, error, reload } = useApi(load);
@@ -208,11 +212,11 @@ const local = StyleSheet.create({
   segmentTextActive: { color: '#fff' },
   chips: { gap: 8, paddingVertical: 3 },
   chip: { borderColor: palette.border, borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 10 },
-  chipActive: { borderColor: palette.primary, backgroundColor: '#2b2452' },
+  chipActive: { borderColor: palette.primary, backgroundColor: palette.primarySoft },
   chipText: { color: palette.muted, textTransform: 'capitalize' },
   chipTextActive: { color: palette.text },
   accountList: { gap: 8 },
   account: { borderColor: palette.border, borderWidth: 1, borderRadius: 12, padding: 12 },
-  accountActive: { borderColor: palette.primary, backgroundColor: '#211d3c' },
+  accountActive: { borderColor: palette.primary, backgroundColor: palette.primarySoft },
   accountName: { color: palette.text, fontWeight: '700' },
 });

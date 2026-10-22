@@ -248,3 +248,75 @@ test('finance reporting: future high-risk anomalies do not affect risk, while el
   assert.deepEqual(withFuture, withoutFuture);
   assert.ok(withEligibleRisk.score > withoutFuture.score);
 });
+
+test('finance risk: uses the current partial Karachi month and two preceding complete months', async () => {
+  const asOf = new Date('2027-01-15T10:00:00.000Z');
+  const reportSummary = await summary([], [], asOf);
+  const profile = { monthlyIncome: 1_000 };
+  const categories = [{ id: 1, isHighRisk: true }, { id: 2, isHighRisk: false }];
+  const ordinary = { ...transaction(-100, 'expense', asOf.toISOString()), category: { id: 2, name: 'Ordinary' } };
+  const riskAt = (date: string) => calculateRisk(reportSummary, profile, categories, [
+    ordinary,
+    { ...transaction(-100, 'expense', date), clientId: `risk-${date}`, category: { id: 1, name: 'High Risk' } },
+  ], asOf).score;
+
+  // January 2027 in Karachi starts at 2026-12-31T19:00Z, so the approved
+  // three-month risk window starts at Karachi midnight on November 1.
+  assert.equal(riskAt('2026-10-31T18:59:59.999Z'), 20);
+  assert.equal(riskAt('2026-10-31T19:00:00.000Z'), 28);
+  assert.equal(riskAt('2027-01-15T09:59:59.999Z'), 28);
+  assert.equal(riskAt(asOf.toISOString()), 28);
+  assert.equal(riskAt('2027-01-15T10:00:00.001Z'), 20);
+});
+
+test('finance risk: volatility uses the same three Karachi months and zero-fills an empty month', async () => {
+  const asOf = new Date('2027-01-15T10:00:00.000Z');
+  const inWindow = [
+    transaction(-100, 'expense', '2026-11-10T12:00:00.000Z'),
+    transaction(-100, 'expense', '2027-01-10T12:00:00.000Z'),
+  ];
+  const outsideWindow = transaction(-100, 'expense', '2026-10-10T12:00:00.000Z');
+  const withoutOutside = await summary(inWindow, [], asOf);
+  const withOutside = await summary([outsideWindow, ...inWindow], [], asOf);
+  const risk = (reportSummary: Awaited<ReturnType<typeof summary>>) => calculateRisk(
+    reportSummary,
+    { monthlyIncome: 10_000 },
+    [],
+    [outsideWindow, ...inWindow],
+    asOf,
+  );
+
+  assert.deepEqual(risk(withOutside), risk(withoutOutside));
+  assert.ok(risk(withOutside).reasons.includes('Spending has varied significantly recently.'));
+});
+
+test('finance risk: Karachi window selection is independent of the runtime timezone', async () => {
+  const original = process.env.TZ;
+  const asOf = new Date('2027-01-15T10:00:00.000Z');
+  const reportSummary = await summary([], [], asOf);
+  const transactions = [
+    { ...transaction(-100, 'expense', asOf.toISOString()), category: { id: 2, name: 'Ordinary' } },
+    { ...transaction(-100, 'expense', '2026-10-31T19:00:00.000Z'), category: { id: 1, name: 'High Risk' } },
+  ];
+  const run = () => calculateRisk(
+    reportSummary,
+    { monthlyIncome: 1_000 },
+    [{ id: 1, isHighRisk: true }],
+    transactions,
+    asOf,
+  );
+
+  try {
+    process.env.TZ = 'UTC';
+    const utcHost = run();
+    process.env.TZ = 'America/Los_Angeles';
+    const pacificHost = run();
+
+    assert.deepEqual(pacificHost, utcHost);
+    assert.equal(utcHost.score, 28);
+    assert.deepEqual(utcHost.reasons, ['Savings are below the 20% target.']);
+  } finally {
+    if (original === undefined) delete process.env.TZ;
+    else process.env.TZ = original;
+  }
+});

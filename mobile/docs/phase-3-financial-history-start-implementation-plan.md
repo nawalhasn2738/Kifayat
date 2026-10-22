@@ -4,7 +4,7 @@
 
 **APPROVED PLANNING FRAMEWORK — TASKS WERE LATER AUTHORIZED INDIVIDUALLY**
 
-The product owner approved the design in `phase-3-financial-history-start-migration-design.md`, including its eight reviewed recommendations, and later authorized implementation tasks individually. The current working tree contains the additive schema/migration, history-start services and commands, forecast readiness, and workflow orchestration described by those later tasks. The user-facing history-start UI and Expo SQLite device/release verification remain incomplete. This plan is a historical scope and dependency record; it does not authorize further work or migration of actual device databases.
+The product owner approved the design in `phase-3-financial-history-start-migration-design.md`, including its eight reviewed recommendations, and later authorized implementation tasks individually. The current repository contains the additive schema/migration, history-start services and commands, forecast readiness, workflow orchestration, and Planning-screen confirmation/correction/explicit-recovery UI described by those later tasks. Host-side tests cover service, repository, and UI-orchestration behavior. Rendered React Native interaction and Expo SQLite device/release verification remain incomplete. This plan is a historical scope and dependency record; it does not authorize further work or migration of actual device databases.
 
 This plan divides implementation into small, separately reviewable tasks. Approval of one task does not authorize a later task. No task may install a dependency, rewrite transactions, recalculate balances, infer a history start, or touch a user's real `kifayat.db` unless a later instruction explicitly says otherwise.
 

@@ -170,8 +170,9 @@ difference = stored balance - expected balance
 4. Reporting-month ranges are start-inclusive and end-exclusive: `[monthStart, nextMonthStart)`.
 5. **APPROVED:** Forecast history uses the three complete consecutive months immediately before the current month.
 6. Future-dated records are excluded from historical and current actual totals until their effective date.
+7. **APPROVED:** Financial risk uses the current partial `Asia/Karachi` reporting month plus the two immediately preceding complete reporting months. Its expense window is start-inclusive at the oldest month boundary and includes transactions through the report `asOf` instant; later transactions are excluded.
 
-The named-timezone reporting-calendar utility is integrated into mobile monthly bucketing, current/previous-month selection, month-to-date categories, projection boundaries, and the separately authorized forecast-readiness service.
+The named-timezone reporting-calendar utility is integrated into mobile monthly bucketing, current/previous-month selection, month-to-date categories, projection boundaries, financial-risk selection, and the separately authorized forecast-readiness service.
 
 ### Empty months
 
@@ -266,20 +267,20 @@ A future refund should link to its original expense, increase the receiving acco
 | Area | Current behavior | Target behavior and status | Likely files affected | Required change | Risk or migration consideration |
 |---|---|---|---|---|---|
 | Transfers | Dedicated user-owned transfer rows identify source, destination, amount, date, request identity, and description; balances change atomically and source overdrafts reject. Activity groups each new transfer once. Legacy transaction transfer rows remain readable and read-only. | Implemented on mobile; excluded from income, expenses, savings, and forecasts | Transfer schema/migration, repository, validation, API, and add/detail/list screens | Verify Expo SQLite and rendered UI on a device | No account-specific activity screen; legacy rows are not automatically paired |
-| Balance consistency | Stored balance is updated atomically alongside supported CRUD. Read-only reconciliation reports signed effects, candidate opening balance, and discrepancies without repair. | Opening balance plus active effects equals stored balance | Schema, migrations, account/transaction repositories, seed, tests | Preserve reconciliation and later add an approved opening-balance model | Candidate opening balance is diagnostic and may reflect missing history |
-| Opening balances | No field; seeded balances start at zero | Explicit integer opening balance for new and migrated accounts | Schema, migration, seed, account creation/import | Add only after auditing existing balance-versus-ledger differences | Preserve current stored balances; do not default existing accounts blindly |
+| Balance consistency | Stored balance is updated atomically alongside supported CRUD. Reconciliation reports signed effects and an advisory opening-balance candidate without repair. | Opening balance plus active effects equals stored balance | Schema, migrations, account/transaction/transfer/opening-balance repositories, seed, tests | Preserve the implemented confirmation, correction, and audit invariants | Candidate opening balance is diagnostic and ambiguous ledgers fail closed |
+| Opening balances | Nullable signed opening balance, append-only audit, reconciliation-led confirmation/correction, and Planning UI are implemented; null is unconfirmed and zero requires explicit confirmation | Approved behavior is implemented and host-tested | Schema/migration, repository, API, Planning screen, and tests | Verify Expo SQLite and rendered interaction on a device | Existing stored balances are preserved; ambiguous ledgers fail closed |
 | Amount parsing | Shared strict parsing is used by transaction and affordability inputs; the maximum is PKR 2,147,483,647. | Reject the complete non-whole input without truncation | Add-transaction and planning screens, validation utilities, tests | Completed for current monetary input paths | Future monetary inputs must reuse the same boundary |
 | Savings | Mobile reporting calculates income minus expenses within each populated `Asia/Karachi` monthly bucket and excludes transfers; the separate legacy web helper still uses negative transfer rows | Income minus expenses over the same period | Finance service, types, dashboard, tests | Mobile primary savings and approved calendar attribution are aligned; retain transfer exclusion | Web behavior remains separate |
 | Forecasts | Readiness uses the previous three complete Karachi months, zero-fills qualifying post-start empty months, excludes the partial current month, and returns `forecast: null` with stable reasons when unavailable; ready total and category estimates use the same mean and population-standard-deviation method | Approved readiness contract and category estimates are implemented | Finance service, history-start/readiness services, types, planning screen, tests | Verify Expo SQLite and rendered UI behavior on a device | Device-specific behavior remains unverified |
 | Negative formatting | General PKR formatting preserves signs; transaction rows explicitly separate direction from magnitude | Preserve signs for balances/availability; use explicit sign only where presentation requires it | Money-format utility, dashboard, planning, transaction screens | Verify rendered output on an emulator or device | Device typography and screen-level rendering remain unverified |
 | Insufficient funds | Repository rechecks the projection in its SQLite transaction and requires exact account/projection confirmation; API/UI provides Cancel and Confirm. | Warn, require explicit confirmation, then allow | Add/edit screen, repository/domain mutation input, tests | Repository/API/UI flow completed | Dialog behavior lacks automated React Native component tests |
-| Category integrity | Positive/null ID validation; SQLite FK handles existence when enabled | Confirm category exists and is valid for type | Validation/domain repository and tests | Add repository validation before mutation | Category policy must be defined; legacy uncategorized rows remain valid |
+| Category integrity | Explicit normalized applicability rows drive UI choices and repository validation; null remains valid for income/expense; historical unmapped assignments remain readable | Approved mapping and enforcement are implemented and host-tested | Schema/migration/seed, catalogue, transaction repository, UI helper, and tests | Verify Expo SQLite and rendered interaction on a device | `anomaly`, `savings_transfer`, and custom categories remain unmapped unless explicitly configured |
 | Database constraints | Text types lack SQL `CHECK` constraints | Enforce stable invariants where practical | Schema and new migration | Add constraints only after compatibility review | SQLite table-rebuild migrations can risk data loss |
-| Tests | On October 21, 2026, `npm test` from `mobile/` passed 167 host-side tests using disposable Node SQLite and better-sqlite3 databases. | Mutation, rollback, migration-chain, calculation, boundary, history-start, readiness, and signed-formatting coverage | Mobile test setup and finance/repository tests | Continue with UI, CI, and Expo SQLite device coverage | Root/web checks and Expo SQLite parity remain unverified |
+| Tests | On October 22, 2026, `npm test` from `mobile/` passed 210 host-side tests with 0 failures. | Mutation, rollback, migration-chain, reporting, history/start, readiness, UI-orchestration, category, transfer, opening-balance, and formatting coverage | Mobile test setup and finance/repository tests | Continue with rendered UI, CI, and Expo SQLite device coverage | Host tests do not prove Expo SQLite/device parity; root/web checks remain outside this evidence |
 
-## 9. Implementation order for future mini-tasks
+## 9. Historical implementation sequence
 
-Steps 1-3 below are complete for the current Windows/Node 24 foundation: database-contract smoke tests, injected repository tests with create/update/delete rollback and reconciliation, and strict PKR parsing. Overdraft protection and legacy-transfer mutation guards are also complete at repository level. The remaining numbered items retain their dependency order.
+The sequence below records the implementation order that guided the work. Steps 1–6 are now implemented with host-side coverage. It is retained as historical rationale, not as a list of missing features; rendered Expo/React Native and Expo SQLite device qualification remain deferred.
 
 ### 1. Establish real SQLite integration-test capability
 
@@ -319,7 +320,7 @@ Steps 1-3 below are complete for the current Windows/Node 24 foundation: databas
 
 ### 6. Correct forecast windows and preserve reconciliation checks
 
-This policy and its service-level implementation were separately authorized after the original design review. The remaining work is the user-facing workflow and device/runtime qualification; no further schema or persisted-data change is implied here.
+This policy, service behavior, and Planning-screen workflow were separately authorized and implemented after the original design review. Remaining qualification is rendered UI and Expo SQLite device/runtime verification; no further schema or persisted-data change is implied here.
 
 - Use the previous three complete consecutive months.
 - Zero-fill complete empty months.
@@ -327,29 +328,31 @@ This policy and its service-level implementation were separately authorized afte
 - Preserve the existing read-only account reconciliation reporting while forecast behavior changes.
 - Acceptance: month-boundary, empty-month, partial-current-month, and drift fixtures pass.
 
-Opening-balance schema work should occur only after steps 1 and 2 establish safe migration fixtures and quantify how existing balances relate to recorded transactions.
+Opening-balance schema and workflow work was subsequently completed after the migration and reconciliation prerequisites were established.
 
-## 10. Decisions deferred for a future release
+## 10. Remaining deferred decisions
 
-### Unresolved policy decision: category applicability
+### Implemented policy: category applicability
 
 **Verified current state:**
 
-- Categories have no dedicated transaction-type field and no SQL applicability constraint.
-- The existing **parent** column is nullable and accepts arbitrary text.
-- The UI's **Income** and **Transfer** parent conventions are presentation/filtering behavior, not an approved authoritative repository policy.
-- Transaction create and update accept any existing category ID or **null**. The foreign key checks category existence only; it does not establish compatibility with income or expense.
+- Categories use the normalized `category_applicability` relation with constrained transaction types.
+- The existing **parent** column remains display-only metadata and is not authoritative for applicability.
+- New transaction category options come from explicit applicability rows, not names or parent values.
+- Transaction create/update validate explicit applicability before balance arithmetic or writes. Distinct typed outcomes cover nonexistent, unmapped, and incompatible categories; `null` remains permitted for income and expense.
 - Repository logic must not infer applicability from category names.
 
-**Decision options awaiting approval:**
+**Approved and implemented behavior:**
 
-1. Add a dedicated, constrained category type and migrate existing category data.
-2. Formally approve a finite set of **parent** values and constrain them, if that model is proven sufficient for all required category groupings and transaction types.
-3. Explicitly allow categories without a type and define how typed and untyped categories behave for each transaction type.
+1. Applicability is represented by explicit normalized rows, including multiple types only through multiple rows.
+2. Seeded income and expense mappings are explicit; `anomaly`, `savings_transfer`, and custom categories remain unmapped unless configured.
+3. Historical unmapped assignments remain readable and may be retained only for an otherwise unrelated update with unchanged type and category.
 
-**Recommendation awaiting approval:** use a dedicated constrained category-type model. It makes applicability explicit, avoids coupling financial integrity to display hierarchy, and gives migrations and repository tests a stable contract. This is a recommendation, not an approved schema decision.
+Repository enforcement remains authoritative. The add-transaction catalogue derives options from explicit mappings and clears incompatible selections when transaction type changes.
 
-Production applicability enforcement and create/update mismatch regression tests remain deferred until the policy is approved and existing seed/category data can be mapped safely. The current implementation evidence is summarized in **transaction-mutation-invariants-audit.md**; this decision remains unresolved and is not fixed by this documentation change.
+Migration, seed mapping, repository enforcement, catalogue filtering, and regression tests are implemented. Expo SQLite and rendered-device behavior remain unverified.
+
+### Policies still deferred
 
 - Any future change from the approved fixed `Asia/Karachi` mobile reporting timezone.
 - Account-type-specific overdraft policies.

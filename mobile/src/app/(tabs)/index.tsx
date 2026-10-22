@@ -16,6 +16,11 @@ export default function OverviewScreen() {
   if (!data) return null;
 
   const { summary, risk } = data;
+  const riskTone = risk.band === 'high'
+    ? { backgroundColor: palette.errorSurface, color: palette.error }
+    : risk.band === 'moderate'
+      ? { backgroundColor: palette.warningSurface, color: palette.warning }
+      : { backgroundColor: palette.successSurface, color: palette.income };
   const maxExpense = Math.max(1, ...summary.monthlyTotals.map((item) => item.expense));
   return (
     <Screen>
@@ -38,8 +43,8 @@ export default function OverviewScreen() {
         <Card>
           <View style={local.rowBetween}>
             <SectionTitle>Risk profile</SectionTitle>
-            <View style={[local.badge, { backgroundColor: risk.band === 'high' ? '#4a1d28' : risk.band === 'moderate' ? '#463812' : '#123b30' }]}>
-              <Text style={local.badgeText}>{risk.score}/100 · {risk.band}</Text>
+            <View style={[local.badge, { backgroundColor: riskTone.backgroundColor }]}>
+              <Text style={[local.badgeText, { color: riskTone.color }]}>{risk.score}/100 · {risk.band}</Text>
             </View>
           </View>
           {risk.reasons.map((reason) => <Text key={reason} style={ui.muted}>• {reason}</Text>)}

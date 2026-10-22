@@ -11,7 +11,7 @@ export default function AddTransferScreen() {
   const rawId = Array.isArray(params.id) ? params.id[0] : params.id;
   const editId = rawId ? Number.parseInt(rawId, 10) : null;
   const load = useCallback(async () => ({
-    accounts: await api.accounts(), transfer: editId ? await api.transfer(editId) : null,
+    accounts: await api.activeAccounts(), transfer: editId ? await api.transfer(editId) : null,
   }), [editId]);
   const { data, loading, error, reload } = useApi(load);
   const [sourceAccountId, setSourceAccountId] = useState<number | null>(null);
@@ -81,5 +81,5 @@ const local = StyleSheet.create({
   label: { color: palette.muted, fontSize: 12, fontWeight: '700' },
   input: { minHeight: 48, color: palette.text, borderColor: palette.border, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, backgroundColor: palette.card },
   account: { borderColor: palette.border, borderWidth: 1, borderRadius: 12, padding: 12 },
-  active: { borderColor: palette.primary, backgroundColor: '#211d3c' }, accountName: { color: palette.text, fontWeight: '700' },
+  active: { borderColor: palette.primary, backgroundColor: palette.primarySoft }, accountName: { color: palette.text, fontWeight: '700' },
 });

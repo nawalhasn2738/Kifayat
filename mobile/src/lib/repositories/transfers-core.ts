@@ -126,6 +126,9 @@ export function createTransferRepository<TRunResult>(
       }
       const source = accountRows.get(input.sourceAccountId)!;
       const destination = accountRows.get(input.destinationAccountId)!;
+      if (source.archivedAt !== null || destination.archivedAt !== null) {
+        throw new Error('Archived accounts cannot be used for new transfers.');
+      }
       const sourceBalance = checkedAdd(source.balance, -input.amount);
       if (sourceBalance < 0) throw new Error('The source account has insufficient funds.');
       const destinationBalance = checkedAdd(destination.balance, input.amount);
@@ -160,6 +163,11 @@ export function createTransferRepository<TRunResult>(
         input.sourceAccountId, input.destinationAccountId,
       ])];
       const rows = ownedAccounts(tx, ids);
+      if ((input.sourceAccountId !== existing.sourceAccountId && rows.get(input.sourceAccountId)!.archivedAt !== null)
+        || (input.destinationAccountId !== existing.destinationAccountId
+          && rows.get(input.destinationAccountId)!.archivedAt !== null)) {
+        throw new Error('Archived accounts cannot receive reassigned transfers.');
+      }
       const balances = new Map([...rows].map(([accountId, account]) => [accountId, account.balance]));
       const proposedBalances = calculateEffects(balances, [
         [existing.sourceAccountId, existing.amount],

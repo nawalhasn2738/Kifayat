@@ -231,9 +231,13 @@ export function calculateRisk(
   asOf: Date,
 ): Risk {
   const txs = transactionsAtOrBefore(transactions, asOf);
-  const recentMonths = summary.monthlyTotals.slice(-3).map((item) => item.expense);
-  const recentStart = new Date(asOf); recentStart.setMonth(recentStart.getMonth() - 3);
-  const recent = txs.filter((tx) => tx.type === 'expense' && new Date(tx.date) >= recentStart);
+  const currentMonth = reportingMonthKey(asOf);
+  const previousMonth = previousReportingMonthKey(currentMonth);
+  const oldestMonth = previousReportingMonthKey(previousMonth);
+  const riskMonths = [oldestMonth, previousMonth, currentMonth];
+  const recentMonths = riskMonths.map((month) => summary.monthlyTotals.find((item) => item.month === month)?.expense ?? 0);
+  const recentStart = reportingMonthStart(oldestMonth).toISOString();
+  const recent = txs.filter((tx) => tx.type === 'expense' && tx.date >= recentStart);
   const highRiskIds = new Set(categories.filter((item) => item.isHighRisk).map((item) => item.id));
   const total = sumAbsoluteMoney(recent);
   const risky = sumAbsoluteMoney(recent.filter((tx) => tx.category && highRiskIds.has(tx.category.id)));
