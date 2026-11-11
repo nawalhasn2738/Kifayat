@@ -1,4 +1,5 @@
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { validateActivityQuery, activityCursorCondition, activitySearch, type ActivityQuery } from '../validation/activity';
+import { and, desc, eq, inArray, or, gte, lt } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 import { accounts, transfers } from '@/lib/db/schema';
 import { LOCAL_USER_ID } from '@/lib/db/seed';
@@ -75,6 +76,19 @@ export function createTransferRepository<TRunResult>(
   async function listTransfers() {
     return (await selectBase().where(eq(transfers.userId, dependencies.userId))
       .orderBy(desc(transfers.date), desc(transfers.id))).map(mapTransfer);
+  }
+
+  async function listTransferActivity(query: ActivityQuery = {}) {
+    const { filters, cursor, pageSize } = validateActivityQuery(query);
+    if ((filters.type !== 'all' && filters.type !== 'transfer') || filters.categoryId !== undefined) return [];
+    const ownedIds = database.select({ id: accounts.id }).from(accounts).where(eq(accounts.userId, dependencies.userId));
+    return (await selectBase().where(and(eq(transfers.userId, dependencies.userId),
+      inArray(transfers.sourceAccountId, ownedIds), inArray(transfers.destinationAccountId, ownedIds),
+      filters.accountId !== undefined ? or(eq(transfers.sourceAccountId, filters.accountId), eq(transfers.destinationAccountId, filters.accountId)) : undefined,
+      filters.start ? gte(transfers.date, filters.start) : undefined, filters.endExclusive ? lt(transfers.date, filters.endExclusive) : undefined,
+      activityCursorCondition(transfers.date, transfers.id, cursor, 'transfer'),
+      activitySearch([transfers.description], filters.search),
+    )).orderBy(desc(transfers.date), desc(transfers.id)).limit(pageSize + 1)).map(mapTransfer);
   }
 
   function ownedAccounts(tx: Parameters<Parameters<typeof database.transaction>[0]>[0], ids: number[]) {
@@ -204,5 +218,5 @@ export function createTransferRepository<TRunResult>(
     });
   }
 
-  return { createTransfer, updateTransfer, deleteTransfer, getTransfer, listTransfers };
+  return { createTransfer, updateTransfer, deleteTransfer, getTransfer, listTransfers, listTransferActivity };
 }

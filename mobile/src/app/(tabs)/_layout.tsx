@@ -32,6 +32,11 @@ export default function TabLayout() {
         options={{
           title: 'Overview',
           headerTitle: 'Kifayat',
+          headerLeft: () => (
+            <Pressable accessibilityRole="button" accessibilityLabel="Financial settings" onPress={() => router.push('/profile-settings' as Href)} style={({ pressed }) => [styles.headerButton, { marginLeft: 14 }, pressed && styles.pressed]}>
+              <Text style={styles.headerButtonText}>Settings</Text>
+            </Pressable>
+          ),
           headerRight: () => (
             <Pressable accessibilityRole={'button'} accessibilityLabel={'Manage accounts'} onPress={() => router.push(accountsRoute)} style={({ pressed }) => [styles.headerButton, pressed && styles.pressed]}>
               <Text style={styles.headerButtonText}>Accounts</Text>

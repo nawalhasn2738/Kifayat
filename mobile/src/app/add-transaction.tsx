@@ -1,3 +1,4 @@
+import { userFacingError } from '@/lib/services/user-facing-error';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -92,7 +93,7 @@ export default function AddTransactionScreen() {
         showOverdraftConfirmation(input, caught, requestId);
         return;
       }
-      setFormError(caught instanceof Error ? caught.message : 'Could not save transaction.');
+      setFormError(userFacingError(caught, 'Could not save transaction.'));
       setSaving(false);
     }
   }
@@ -124,7 +125,7 @@ export default function AddTransactionScreen() {
       const requestId = editId ? null : (creationRequestId.current ??= createTransactionRequestId());
       await submitTransaction(input, undefined, requestId);
     } catch (caught) {
-      setFormError(caught instanceof Error ? caught.message : 'Could not save transaction.');
+      setFormError(userFacingError(caught, 'Could not save transaction.'));
       setSaving(false);
     }
   }

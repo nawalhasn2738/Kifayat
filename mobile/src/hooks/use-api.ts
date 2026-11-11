@@ -1,3 +1,4 @@
+import { createResourceLoader } from '@/lib/services/resource-loader-core';
 import { useCallback, useEffect, useState } from 'react';
 
 export function useApi<T>(loader: () => Promise<T>) {
@@ -5,23 +6,14 @@ export function useApi<T>(loader: () => Promise<T>) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const reload = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setData(await loader());
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Unable to load data');
-    } finally {
-      setLoading(false);
-    }
-  }, [loader]);
+  const [controller] = useState(() => createResourceLoader<T>({ loading: setLoading, loaded: setData, error: setError }));
+  const reload = useCallback(() => controller.load(loader), [loader, controller]);
 
   useEffect(() => {
     // Initial data loading is intentionally synchronized with the loader identity.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void reload();
-  }, [reload]);
+    return controller.invalidate;
+  }, [reload, controller]);
 
   return { data, loading, error, reload };
 }

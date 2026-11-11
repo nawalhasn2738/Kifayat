@@ -13,3 +13,7 @@ export function forecastCategoryRows(forecast: Forecast) {
     ([leftName, left], [rightName, right]) => right.blend - left.blend || leftName.localeCompare(rightName),
   );
 }
+
+export function forecastBarPercent(estimate: number, maximum: number) {
+  return maximum > 0 ? Math.min(100, Math.max(0, estimate / maximum * 100)) : 0;
+}

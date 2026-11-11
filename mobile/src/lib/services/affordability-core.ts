@@ -8,6 +8,28 @@ export type AffordabilityServiceDependencies = {
   listActiveAccounts: () => Promise<{ id: number; name: string; type: string; balance: number }[]>;
 };
 
+export function completeMonthAverages(summary: Summary, qualifyingMonths: string[]) {
+  const completeMonths = qualifyingMonths.map(
+    (month) => summary.monthlyTotals.find((row) => row.month === month)
+    ?? { month, income: 0, expense: 0, savings: 0 },
+  );
+  const averageMonthlySpend = Math.round(meanMoney(completeMonths.map((row) => row.expense)));
+  const averageMonthlySavings = Math.round(meanMoney(completeMonths.map((row) => row.savings)));
+  return { averageMonthlySpend, averageMonthlySavings };
+}
+
+export function affordabilityFunds(accountRows: { id: number; name: string; type: string; balance: number }[]) {
+  const eligibleAccounts = accountRows.filter(
+    (account): account is typeof account & { type: 'checking' | 'savings' } => account.type === 'checking' || account.type === 'savings',
+  );
+  const eligibleBalance = eligibleAccounts.reduce((total, account) => {
+    const next = total + account.balance;
+    if (!Number.isSafeInteger(account.balance) || !Number.isSafeInteger(next)) throw new Error('Affordability requires safe whole-PKR monetary values.');
+    return next;
+  }, 0);
+  return { eligibleAccounts, eligibleBalance };
+}
+
 export function createAffordabilityService(dependencies: AffordabilityServiceDependencies) {
   return async function getAffordability(
     input: { itemName: string; price: number; monthsAhead: number },
@@ -25,30 +47,12 @@ export function createAffordabilityService(dependencies: AffordabilityServiceDep
     const [summary, profile, accountRows] = await Promise.all([
       dependencies.getSummary(), dependencies.getProfile(), dependencies.listActiveAccounts(),
     ]);
-    const eligibleAccounts = accountRows.filter(
-      (account): account is typeof account & { type: 'checking' | 'savings' } =>
-        account.type === 'checking' || account.type === 'savings',
-    );
-    if (!eligibleAccounts.length) {
-      return {
-        status: 'insufficient_information',
-        result: null,
-        guidance: 'Add or restore an active checking or savings account before assessing a purchase.',
-      };
-    }
-    const eligibleBalance = eligibleAccounts.reduce((total, account) => {
-      const next = total + account.balance;
-      if (!Number.isSafeInteger(account.balance) || !Number.isSafeInteger(next)) {
-        throw new Error('Affordability requires safe whole-PKR monetary values.');
-      }
-      return next;
-    }, 0);
-    const completeMonths = forecast.qualifyingMonths.map(
-      (month) => summary.monthlyTotals.find((row) => row.month === month)
-        ?? { month, income: 0, expense: 0, savings: 0 },
-    );
-    const averageMonthlySpend = Math.round(meanMoney(completeMonths.map((row) => row.expense)));
-    const averageMonthlySavings = Math.round(meanMoney(completeMonths.map((row) => row.savings)));
+    const { eligibleAccounts, eligibleBalance } = affordabilityFunds(accountRows);
+    if (!eligibleAccounts.length) return {
+      status: 'insufficient_information', result: null,
+      guidance: 'Add or restore an active checking or savings account before assessing a purchase.',
+    };
+    const { averageMonthlySpend, averageMonthlySavings } = completeMonthAverages(summary, forecast.qualifyingMonths);
     return {
       status: 'ready',
       result: calculateAffordability(input, {

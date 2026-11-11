@@ -97,7 +97,9 @@ test('mobile chat: missing configuration answers locally; invalid configuration,
   assert.equal(local.mode, 'deterministic');
   assert.match(local.text, /PKR 10,000/);
   await assert.rejects(clientFor(async () => Response.json({}), { endpoint: 'http://untrusted.example' })(question), /full trusted HTTPS/);
-  await assert.rejects(clientFor(async () => Response.json({ text: 'fabrication' }))(question), /unsupported answer/);
+  const fallback = await clientFor(async () => Response.json({ text: 'fabrication' }))(question);
+  assert.equal(fallback.mode, 'deterministic');
+  assert.equal(fallback.text, renderAnswer(buildAnswerPlan(parseChatRequest(wire()))));
   await assert.rejects(clientFor(async () => new Response('Private error trace', { status: 502 }))(question), /unavailable/);
   await assert.rejects(clientFor(async () => { throw new Error('Secret financial detail'); })(question), /Check your connection/);
   await assert.rejects(clientFor(async () => new Promise(() => {}), { timeoutMs: 5 })(question), /timed out/);

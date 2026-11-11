@@ -16,8 +16,8 @@ export function contextFixture(overrides: Partial<ChatContextDependencies> = {})
     listAccounts: async () => [{ id: 7, name: 'Private account', type: 'checking', balance: 90_000 }],
     listAllTransactions: async () => [tx(100_000, 'income'), tx(-10_000, 'expense'), tx(-20_000, 'expense', '2026-10-03T12:00:00.000Z')],
     getHistory: async () => ({ status: 'confirmed', value: '2026-07-31T19:00:00.000Z', calendarDate: '2026-08-01' }),
-    getForecast: async () => ({ status: 'ready', requiredCompleteMonths: 3, availableCompleteMonths: 3, qualifyingMonths: ['2026-08', '2026-09', '2026-10'],
-      guidance: 'Ready', forecast: { total: { blend: 1, low: 0, high: 2 }, byCategory: {}, method: 'test', asOf: cutoff.toISOString() } }),
+    getForecast: async (asOf) => ({ status: 'ready', requiredCompleteMonths: 3, availableCompleteMonths: 3, qualifyingMonths: ['2026-08', '2026-09', '2026-10'],
+      guidance: 'Ready', forecast: { total: { blend: 1, low: 0, high: 2 }, byCategory: {}, method: 'test', asOf: asOf.toISOString() } }),
     ...overrides,
   })();
 }
@@ -109,4 +109,19 @@ test('chat context: year rollover and leap-month reporting boundaries use the Ka
     assert.equal(context.previous.month, previousMonth);
     assert.equal(context.current.endExclusive, end);
   }
+});
+
+test('chat privacy: removing category record IDs preserves distinct labels and every forecast amount', async () => {
+  const context = await contextFixture({ getForecast: async asOf => ({
+    status: 'ready', requiredCompleteMonths: 3, availableCompleteMonths: 3, qualifyingMonths: ['2026-08', '2026-09', '2026-10'], guidance: 'Ready',
+    forecast: { total: { blend: 3, low: 0, high: 6 }, byCategory: {
+      'uncategorized [category 721]': { blend: 1, low: 0, high: 2 },
+      'uncategorized [distinct category 1]': { blend: 2, low: 0, high: 4 },
+    }, method: 'Fixture', asOf: asOf.toISOString() },
+  }) });
+  const forecast = context.planning!.forecast;
+  assert.equal(forecast.status, 'ready'); if (forecast.status !== 'ready') return;
+  assert.equal(Object.keys(forecast.forecast.byCategory).length, 2);
+  assert.deepEqual(Object.values(forecast.forecast.byCategory).map(row => row.blend).sort(), [1, 2]);
+  assert.doesNotMatch(JSON.stringify(context), /721/);
 });

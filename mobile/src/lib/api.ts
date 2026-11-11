@@ -1,7 +1,11 @@
-import { listAccounts, listActiveAccounts, listCategories } from '@/lib/repositories/catalog';
+import { getDashboard } from '@/lib/services/dashboard';
+import { getActivity } from '@/lib/services/activity';
+import { getSavingsPlanning } from '@/lib/services/savings-planning';
+import { createGoal, updateGoalTarget } from '@/lib/repositories/savings-goals';
+import { getProfileSettings, saveProfileSettings, listAccounts, listActiveAccounts, listCategories } from '@/lib/repositories/catalog';
 import { archiveAccount, createAccount, deleteUnusedAccount, listManagedAccounts, renameAccount, restoreAccount } from '@/lib/repositories/accounts';
 import { CategoryApplicabilityError, OverdraftConfirmationRequiredError, type CategoryApplicabilityErrorCode, type TransactionCreationOptions, type TransactionMutationOptions } from '@/lib/repositories/transactions-core';
-import { createTransaction, deleteTransaction, getTransaction, listTransactions, updateTransaction } from '@/lib/repositories/transactions';
+import { createTransaction, deleteTransaction, getTransaction, updateTransaction } from '@/lib/repositories/transactions';
 import { getAffordability, getForecast, getRisk, getSummary } from '@/lib/services/finance';
 import {
   confirmFinancialHistoryStart,
@@ -19,6 +23,9 @@ import { getChatContext } from '@/lib/services/chat-context';
 export const AI_PROXY_URL = process.env.EXPO_PUBLIC_AI_PROXY_URL?.replace(/\/$/, '') ?? '';
 export const API_URL = 'Local SQLite';
 export const api = {
+  dashboard: getDashboard,
+  savingsPlanning: getSavingsPlanning, createGoal, updateGoalTarget,
+  profileSettings: getProfileSettings, saveProfileSettings,
   summary: getSummary, risk: getRisk, forecast: getForecast, categories: listCategories,
   accounts: listAccounts, activeAccounts: listActiveAccounts, managedAccounts: listManagedAccounts,
   createAccount, renameAccount, archiveAccount, restoreAccount, deleteUnusedAccount,
@@ -26,7 +33,6 @@ export const api = {
   recoverFinancialProfile,
   confirmFinancialHistoryStart,
   correctFinancialHistoryStart,
-  transactions: async (_page = 1, pageSize = 100) => ({ items: await listTransactions(pageSize), total: (await listTransactions(5000)).length, page: 1, pageSize }),
   transaction: async (id: number) => { const tx = await getTransaction(id); if (!tx) throw new Error('Transaction not found.'); return tx; },
   createTransaction: (input: TransactionInput, options: TransactionCreationOptions) => createTransaction(input, options),
   updateTransaction: (id: number, input: TransactionInput, options?: TransactionMutationOptions) => updateTransaction(id, input, options),
@@ -39,14 +45,7 @@ export const api = {
   openingBalanceState: getOpeningBalanceState,
   confirmOpeningBalance,
   correctOpeningBalance,
-  activity: async () => {
-    const [transactionRows, transferRows] = await Promise.all([listTransactions(5000), listTransfers()]);
-    const items = [
-      ...transactionRows.map((item) => ({ kind: 'transaction' as const, ...item })),
-      ...transferRows.map((item) => ({ kind: 'transfer' as const, ...item })),
-    ].sort((left, right) => right.date.localeCompare(left.date));
-    return { items, total: items.length };
-  },
+  activity: getActivity,
   affordability: getAffordability,
   chat: createChatClient({ endpoint: AI_PROXY_URL, getContext: getChatContext, fetch: (...args) => fetch(...args) }),
 };

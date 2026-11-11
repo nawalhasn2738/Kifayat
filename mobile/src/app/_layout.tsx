@@ -30,7 +30,7 @@ export default function RootLayout() {
   }, [migration.success]);
 
   const databaseError = migration.error ?? setupError;
-  if (databaseError) return <View style={startup.center}><Text accessibilityRole={'alert'} style={startup.error}>Kifayat could not open its local database.</Text><Text style={startup.detail}>{databaseError.message}</Text></View>;
+  if (databaseError) return <View style={startup.center}><Text accessibilityRole={'alert'} style={startup.error}>Kifayat could not open its local database.</Text><Text style={startup.detail}>Your saved data has not been reset. Close and reopen the app; if this continues, seek support before changing local data.</Text></View>;
   if (!ready) return <View style={startup.center}><ActivityIndicator color={colors.primary} /><Text style={startup.detail}>Preparing your private local data...</Text></View>;
   return (
     <>
@@ -41,6 +41,7 @@ export default function RootLayout() {
         <Stack.Screen name="transaction/[id]" options={{ title: 'Transaction Details' }} />
         <Stack.Screen name={'add-transfer'} options={{ title: 'Transfer Money' }} />
         <Stack.Screen name={'transfer/[id]'} options={{ title: 'Transfer Details' }} />
+        <Stack.Screen name="profile-settings" options={{ title: 'Financial Settings' }} />
         <Stack.Screen name={'accounts'} options={{ title: 'Manage Accounts' }} />
       </Stack>
     </>

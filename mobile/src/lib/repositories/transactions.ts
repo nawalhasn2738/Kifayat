@@ -5,6 +5,7 @@ const transactionRepository = createTransactionRepository(db);
 
 export const {
   listTransactions,
+  listTransactionActivity,
   listAllTransactions,
   getTransaction,
   createTransaction,

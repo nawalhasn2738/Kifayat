@@ -55,7 +55,7 @@ export type ForecastResult =
     qualifyingMonths: string[];
     guidance: string;
   };
-export type Risk = { score: number; band: 'low' | 'moderate' | 'high'; reasons: string[] };
+export type Risk = { score: number; band: 'low' | 'moderate' | 'high'; reasons: string[]; factors?: { label: string; value: number; weight: number }[] };
 export type Affordability = {
   canAfford: boolean;
   available: number;

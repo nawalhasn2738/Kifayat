@@ -6,10 +6,14 @@ on:
       - feature/mobile-only-drizzle-sqlite
     paths:
       - "mobile/**"
+      - "src/lib/chat/mobile-handler.ts"
+      - "src/app/api/mobile-chat/route.ts"
       - ".github/workflows/mobile-ci.yml"
   pull_request:
     paths:
       - "mobile/**"
+      - "src/lib/chat/mobile-handler.ts"
+      - "src/app/api/mobile-chat/route.ts"
       - ".github/workflows/mobile-ci.yml"
 
 permissions:

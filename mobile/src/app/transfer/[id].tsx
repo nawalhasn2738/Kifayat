@@ -1,6 +1,7 @@
+import { userFacingError } from '@/lib/services/user-facing-error';
 import { useCallback } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Card, ErrorState, LoadingState, PrimaryButton, Screen, SectionTitle, palette } from '@/components/finance-ui';
 import { api, formatPKR } from '@/lib/api';
 import { useApi } from '@/hooks/use-api';
@@ -11,6 +12,7 @@ export default function TransferDetailsScreen() {
   const id = Number.parseInt(rawId, 10);
   const load = useCallback(() => api.transfer(id), [id]);
   const { data, loading, error, reload } = useApi(load);
+  useFocusEffect(useCallback(() => { void reload(); }, [reload]));
   if (loading && !data) return <Screen><LoadingState /></Screen>;
   if (error && !data) return <Screen><View style={local.pad}><ErrorState message={error} retry={reload} /></View></Screen>;
   if (!data) return null;
@@ -18,14 +20,14 @@ export default function TransferDetailsScreen() {
     { text: 'Cancel', style: 'cancel' },
     { text: 'Delete', style: 'destructive', onPress: () => void api.deleteTransfer(id)
       .then(() => router.replace('/(tabs)/transactions'))
-      .catch((caught) => Alert.alert('Could not delete', caught instanceof Error ? caught.message : 'Please try again.')) },
+      .catch((caught) => Alert.alert('Could not delete', userFacingError(caught, 'Local data could not be updated. Please try again.'))) },
   ]);
   return <Screen><ScrollView contentContainerStyle={local.content}>
     <Card><Text style={local.eyebrow}>TRANSFER #{id}</Text><Text style={local.amount}>{formatPKR(data.amount)}</Text></Card>
     <Card><SectionTitle>Details</SectionTitle>
       <Detail label={'From'} value={data.sourceAccount.name} />
       <Detail label={'To'} value={data.destinationAccount.name} />
-      <Detail label={'Date'} value={new Date(data.date).toLocaleDateString('en-PK', { dateStyle: 'long' })} />
+      <Detail label={'Date'} value={new Date(data.date).toLocaleDateString('en-PK', { dateStyle: 'long', timeZone: 'Asia/Karachi' })} />
       <Detail label={'Description'} value={data.description ?? 'No description'} />
     </Card>
     <PrimaryButton label={'Correct transfer'} onPress={() => router.push({ pathname: '/add-transfer', params: { id: String(id) } })} />

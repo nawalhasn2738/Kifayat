@@ -1,5 +1,6 @@
+import { userFacingError } from '@/lib/services/user-facing-error';
 import { useCallback } from 'react';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Alert, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Card, ErrorState, LoadingState, PrimaryButton, Screen, SectionTitle, palette, styles as ui } from '@/components/finance-ui';
 import { api, formatTransactionPKR, transactionAmountTone } from '@/lib/api';
@@ -11,6 +12,7 @@ export default function TransactionDetailsScreen() {
   const id = Number.parseInt(rawId ?? '', 10);
   const load = useCallback(() => api.transaction(id), [id]);
   const { data, loading, error, reload } = useApi(load);
+  useFocusEffect(useCallback(() => { void reload(); }, [reload]));
 
   if (loading && !data) return <Screen><LoadingState /></Screen>;
   if (error && !data) return <Screen><View style={local.pad}><ErrorState message={error} retry={reload} /></View></Screen>;
@@ -20,7 +22,7 @@ export default function TransactionDetailsScreen() {
   const positive = tone === 'positive';
   const remove = () => Alert.alert('Delete transaction?', 'This will also reverse its account balance change.', [
     { text: 'Cancel', style: 'cancel' },
-    { text: 'Delete', style: 'destructive', onPress: () => void api.deleteTransaction(id).then(() => router.replace('/(tabs)/transactions')).catch((caught) => Alert.alert('Could not delete', caught instanceof Error ? caught.message : 'Please try again.')) },
+    { text: 'Delete', style: 'destructive', onPress: () => void api.deleteTransaction(id).then(() => router.replace('/(tabs)/transactions')).catch((caught) => Alert.alert('Could not delete', userFacingError(caught, 'Local data could not be updated. Please try again.'))) },
   ]);
   return (
     <Screen>
@@ -34,7 +36,7 @@ export default function TransactionDetailsScreen() {
         <Card>
           <SectionTitle>Details</SectionTitle>
           <Detail label="Merchant" value={data.merchant ?? 'Not provided'} />
-          <Detail label="Date" value={new Date(data.date).toLocaleDateString('en-PK', { dateStyle: 'long' })} />
+          <Detail label="Date" value={new Date(data.date).toLocaleDateString('en-PK', { dateStyle: 'long', timeZone: 'Asia/Karachi' })} />
           <Detail label="Type" value={data.type} />
           <Detail label="Category" value={(data.category?.name ?? 'Uncategorized').replaceAll('_', ' ')} />
           <Detail label="Account" value={`${data.account.name} · ${data.account.type}`} />

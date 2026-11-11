@@ -1,3 +1,4 @@
+import { forecastBarPercent } from '../src/lib/finance/forecast-presentation';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
@@ -53,4 +54,10 @@ test('forecast presentation orders tied categories by name and keeps collision l
     'uncategorized [category 7]',
     'zebra',
   ]);
+});
+
+test('forecast presentation: confirmed zero estimates have no visible spending bar, including an all-zero forecast', () => {
+  assert.equal(forecastBarPercent(0, 100), 0);
+  assert.equal(forecastBarPercent(0, 0), 0);
+  assert.equal(forecastBarPercent(1, 1000), 0.1);
 });

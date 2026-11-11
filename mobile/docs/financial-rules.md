@@ -1,5 +1,7 @@
 # Kifayat Mobile Financial Rules
 
+Status note: this is a policy/history document with checkpoint-specific evidence, not the current delivery checklist. Phase 4-6 implementation and verification supersede older status/count/CI statements; see [FINAL-MOBILE-READINESS.md](FINAL-MOBILE-READINESS.md) and its linked reports.
+
 ## 1. Purpose and scope
 
 This document defines the approved financial rules for Kifayat's mobile application before implementation changes are made. Expo SQLite is the mobile source of truth, and Drizzle ORM is the data-access layer. The retained backend may provide secure AI services, but it does not define or silently replace the mobile ledger.
@@ -55,7 +57,7 @@ This specification covers PKR amounts, transactions, balances, transfers, saving
 ### 3.1 Currency and precision
 
 1. The initial release supports PKR only.
-2. User-entered money is a positive whole number of rupees.
+2. Transaction prices and savings-goal targets are positive whole PKR. Profile income/emergency targets accept explicitly entered zero; opening balances use their separately approved signed-integer rules.
 3. Decimal input is rejected explicitly. It must never be truncated or silently rounded.
 4. Monetary values are stored as integers. Display formatting is separate from storage and must preserve negative signs where financially meaningful.
 5. Currency conversion and multi-currency accounts are unsupported in the initial release.

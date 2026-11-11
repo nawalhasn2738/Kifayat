@@ -1,3 +1,4 @@
+import { validateFinancialProfile, type FinancialProfileInput } from '@/lib/validation/profile';
 import { and, asc, eq, isNull } from 'drizzle-orm';
 import { LOCAL_USER_ID } from '@/lib/db/seed';
 import { accounts, categories, categoryApplicability, transactions, userProfiles } from '@/lib/db/schema';
@@ -114,5 +115,24 @@ export function createCatalogRepository<TRunResult>(
     return profile;
   }
 
-  return { listAccounts, listActiveAccounts, listCategories, getProfile, reconcileAccountBalances };
+  async function getProfileSettings(): Promise<FinancialProfileInput | null> {
+    const [profile] = await database.select({
+      monthlyIncome: userProfiles.monthlyIncome, emergencyFundTarget: userProfiles.emergencyFundTarget,
+    }).from(userProfiles).where(eq(userProfiles.userId, dependencies.userId)).limit(1);
+    return profile ? validateFinancialProfile(profile) : null;
+  }
+
+  async function saveProfileSettings(input: FinancialProfileInput): Promise<FinancialProfileInput> {
+    const values = validateFinancialProfile(input);
+    // Update only the two supported fields of the owned existing row. Never upsert
+    // a missing profile or alter its history confirmation or other personal fields.
+    const [saved] = await database.update(userProfiles).set(values)
+      .where(eq(userProfiles.userId, dependencies.userId)).returning({
+        monthlyIncome: userProfiles.monthlyIncome, emergencyFundTarget: userProfiles.emergencyFundTarget,
+      });
+    if (!saved) throw new Error('Financial profile is missing. Recover it in Financial Planning first.');
+    return saved;
+  }
+
+  return { listAccounts, listActiveAccounts, listCategories, getProfile, getProfileSettings, saveProfileSettings, reconcileAccountBalances };
 }

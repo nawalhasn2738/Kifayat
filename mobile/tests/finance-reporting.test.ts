@@ -314,7 +314,7 @@ test('finance risk: Karachi window selection is independent of the runtime timez
 
     assert.deepEqual(pacificHost, utcHost);
     assert.equal(utcHost.score, 28);
-    assert.deepEqual(utcHost.reasons, ['Savings are below the 20% target.']);
+    assert.deepEqual(utcHost.reasons, ['Savings are below the 20% target.', 'Categories marked high-risk account for more than a quarter of recorded spending.']);
   } finally {
     if (original === undefined) delete process.env.TZ;
     else process.env.TZ = original;

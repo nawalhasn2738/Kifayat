@@ -1,8 +1,9 @@
+import { planningIntent } from '../chat/planning';
 import { reportingMonthKey, reportingMonthRange } from '@/lib/finance/reporting-calendar';
 import { createSummaryService, transactionsAtOrBefore } from '@/lib/services/finance-core';
-import { parseChatRequest, type FinancialContext, type Period } from '../chat/contract';
+import { parseChatRequest, type FinancialContext, type Period, type ChatMessage } from '../chat/contract';
 import type { FinancialHistoryState } from './history-start-state-core';
-import type { ForecastResult, Transaction } from '@/lib/types';
+import type { AffordabilityAssessment, ForecastResult, Summary, Transaction } from '@/lib/types';
 
 type ContextAccount = { id: number; name: string; type: string; balance: number };
 export type ChatContextDependencies = {
@@ -10,11 +11,12 @@ export type ChatContextDependencies = {
   listAllTransactions: () => Promise<Transaction[]>;
   getHistory: () => Promise<FinancialHistoryState>;
   getForecast: (asOf: Date) => Promise<ForecastResult>;
+  getAffordability?: (input: { itemName: string; price: number; monthsAhead: number }, asOf: Date, snapshot: { summary: Summary; forecast: ForecastResult }) => Promise<AffordabilityAssessment>;
   now: () => Date;
 };
 
 export function createChatContextProvider(dependencies: ChatContextDependencies) {
-  return async function getChatContext(): Promise<FinancialContext> {
+  return async function getChatContext(messages: ChatMessage[] = [{ role: 'user', content: 'This month spending' }]): Promise<FinancialContext> {
     const asOf = dependencies.now();
     const [accounts, allTransactions, historyState, forecast] = await Promise.all([
       dependencies.listAccounts(), dependencies.listAllTransactions(), dependencies.getHistory(), dependencies.getForecast(asOf),
@@ -52,7 +54,35 @@ export function createChatContextProvider(dependencies: ChatContextDependencies)
         categories: [...categoryTotals].map(([name, total]) => ({ name, total })),
       };
     }
+    const purchase = planningIntent(messages).purchase;
+    let affordability: NonNullable<FinancialContext['planning']>['affordability'] = null;
+    if (purchase && planningIntent(messages).affordability && dependencies.getAffordability) {
+      try {
+        const assessment = await dependencies.getAffordability({ ...purchase, itemName: 'Planned purchase' }, asOf, { summary, forecast });
+        affordability = assessment.status === 'ready' ? { status: 'ready', result: assessment.result }
+          : { status: assessment.status, guidance: assessment.guidance };
+      } catch {
+        affordability = { status: 'insufficient_information', guidance: 'Financial information could not be verified. Check Financial Planning before assessing a purchase.' };
+      }
+    }
+    // The forecast service can append a category record ID to disambiguate labels.
+    // Keep its amounts while replacing that internal suffix before serialization.
+    let publicForecast = forecast;
+    if (forecast.status === 'ready') {
+      const reserved = new Set(Object.keys(forecast.forecast.byCategory));
+      const entries = Object.entries(forecast.forecast.byCategory).map(([original, values]) => {
+        let label = original;
+        if (/\[category \d+\]$/.test(original)) {
+          let sequence = 1;
+          do { label = original.replace(/\[category \d+\]$/, `[distinct category ${sequence++}]`); } while (reserved.has(label));
+          reserved.add(label);
+        }
+        return [label, values] as const;
+      });
+      publicForecast = { ...forecast, forecast: { ...forecast.forecast, byCategory: Object.fromEntries(entries) } };
+    }
     const context: FinancialContext = {
+      planning: { forecast: publicForecast, purchase, affordability },
       source: 'mobile_sqlite', asOf: asOf.toISOString(), timeZone: 'Asia/Karachi', history,
       forecast: { status: forecast.status, availableCompleteMonths: forecast.availableCompleteMonths, requiredCompleteMonths: 3 },
       balances: { total: summary.totalBalance, accountCount: accounts.length, basis: 'current_stored_balance' },

@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { createPurchaseAssessmentController, type PurchaseAssessmentState } from '@/lib/services/purchase-assessment-ui';
+import { SavingsPlanningSection } from '@/components/savings-planning';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { KeyboardAvoidingView, Platform, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Card, ErrorState, LoadingState, PrimaryButton, Screen, SectionTitle, palette, styles as ui } from '@/components/finance-ui';
 import { api, formatPKR } from '@/lib/api';
-import { FORECAST_CATEGORY_LABEL, FORECAST_TOTAL_LABEL, forecastBasisLabel, forecastCategoryRows } from '@/lib/finance/forecast-presentation';
+import { FORECAST_CATEGORY_LABEL, FORECAST_TOTAL_LABEL, forecastBasisLabel, forecastCategoryRows, forecastBarPercent } from '@/lib/finance/forecast-presentation';
 import type { AffordabilityAssessment } from '@/lib/types';
-import { parsePlanningHorizon } from '@/lib/validation/affordability';
-import { parsePkrAmount } from '@/lib/validation/transaction';
 import type { ConfirmHistoryStartResult, CorrectHistoryStartResult } from '@/lib/services/history-start-commands-core';
 import type { MissingProfileRecoveryResult } from '@/lib/services/history-start-recovery-core';
 import type { HistoryWorkflowReadResult } from '@/lib/services/history-workflow-core';
@@ -17,13 +18,14 @@ type HistoryOutcome = ConfirmHistoryStartResult | CorrectHistoryStartResult | Mi
 export default function PlanningScreen() {
   const [data, setData] = useState<HistoryWorkflowReadResult | null>(null);
   const [loading, setLoading] = useState(true);
+  const [savingsRefresh, setSavingsRefresh] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [item, setItem] = useState('iPhone 15');
   const [price, setPrice] = useState('320000');
   const [months, setMonths] = useState('6');
-  const [result, setResult] = useState<AffordabilityAssessment | null>(null);
-  const [checking, setChecking] = useState(false);
-  const [checkError, setCheckError] = useState<string | null>(null);
+  const [purchase, setPurchase] = useState<PurchaseAssessmentState>({ checking: false, error: null, result: null });
+  const [purchaseController] = useState(() => createPurchaseAssessmentController({ assess: api.affordability, changed: setPurchase }));
+  const { checking, error: checkError } = purchase;
   const [historyDate, setHistoryDate] = useState('');
   const [monthlyIncome, setMonthlyIncome] = useState('');
   const [emergencyFundTarget, setEmergencyFundTarget] = useState('');
@@ -35,7 +37,10 @@ export default function PlanningScreen() {
     loaded: (value) => { setData(value); setLoadError(null); },
     failed: setLoadError,
   }));
-  const load = useCallback(() => requestCoordinator.load(() => api.historyState()), [requestCoordinator]);
+  const load = useCallback(() => {
+    purchaseController.invalidate();
+    return requestCoordinator.load(() => api.historyState());
+  }, [requestCoordinator, purchaseController]);
   const [submissionRunner] = useState(() => createHistorySubmissionRunner({
     saving: setHistorySaving,
     clearMessages: () => { setHistoryError(null); setHistoryNotice(null); },
@@ -49,23 +54,17 @@ export default function PlanningScreen() {
     invalidateReads: requestCoordinator.invalidate,
   }));
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     void load();
-  }, [load]);
-  async function check() {
-    setChecking(true); setCheckError(null); setResult(null);
-    try {
-      const itemName = item.trim();
-      if (!itemName) throw new Error('Enter the purchase name.');
-      setResult(await api.affordability({ itemName, price: parsePkrAmount(price), monthsAhead: parsePlanningHorizon(months) }));
-    } catch (caught) { setCheckError(caught instanceof Error ? caught.message : 'Check failed'); }
-    finally { setChecking(false); }
-  }
-
+    return () => { requestCoordinator.invalidate(); purchaseController.invalidate(); };
+  }, [load, requestCoordinator, purchaseController]));
+  const check = () => purchaseController.check({ itemName: item, price, monthsAhead: months });
+  const financialMutation = useCallback(() => { purchaseController.invalidate(); setSavingsRefresh(value => value + 1); void load(); }, [purchaseController, load]);
   async function submitHistory(
     operation: () => Promise<import('@/lib/services/history-workflow-core').HistoryWorkflowActionResult<HistoryOutcome>>,
     success: string,
   ) {
+    purchaseController.invalidate();
     await submissionRunner.submit(operation, success);
   }
   async function recoverProfile() {
@@ -85,9 +84,10 @@ export default function PlanningScreen() {
   const rows = forecast ? forecastCategoryRows(forecast) : [];
   const max = Math.max(1, ...rows.map(([, value]) => value.blend));
 
-  return <Screen><ScrollView contentContainerStyle={local.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { if (!submissionRunner.isActive()) void load(); }} tintColor={palette.primary} />}>
+  return <Screen><KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={90}><ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={local.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { if (!submissionRunner.isActive()) { setSavingsRefresh(value => value + 1); void load(); } }} tintColor={palette.primary} />}>
     <View><Text style={local.title}>Plan ahead</Text><Text style={ui.muted}>Forecasts and purchase decisions grounded in your data.</Text></View>
-    <OpeningBalances />
+    <SavingsPlanningSection refreshKey={`${history.status}:${history.status === 'confirmed' ? history.value : ''}:${savingsRefresh}`} />
+    <OpeningBalances onChanged={financialMutation} />
     <Card><SectionTitle>Financial history</SectionTitle>
       {history.status === 'confirmed' && <><Text style={local.status}>Confirmed from {history.calendarDate}</Text><Text style={ui.muted}>Enter a different Karachi date to correct it. The saved value is protected against stale updates.</Text><TextInput accessibilityLabel="Correct history start date" value={selectedDate} onChangeText={setHistoryDate} style={local.input} placeholder="YYYY-MM-DD" placeholderTextColor={palette.muted} /><PrimaryButton label={historySaving ? 'Saving...' : 'Save correction'} disabled={historySaving} onPress={() => submitHistory(() => api.correctFinancialHistoryStart({ calendarDate: selectedDate, expectedCurrentValue: history.value }), 'Financial history start corrected.')} /></>}
       {history.status === 'unconfirmed' && <><Text style={local.status}>Not yet confirmed</Text>{history.suggestion ? <Text style={ui.muted}>Suggested from your earliest transaction: {history.suggestion.calendarDate}. Review it before confirming; it is never saved automatically.</Text> : <Text style={ui.muted}>No suggestion is available. Enter when your complete records begin.</Text>}<TextInput accessibilityLabel="History start date" value={selectedDate} onChangeText={setHistoryDate} style={local.input} placeholder="YYYY-MM-DD" placeholderTextColor={palette.muted} /><PrimaryButton label={historySaving ? 'Confirming...' : 'Confirm history start'} disabled={historySaving} onPress={() => submitHistory(() => api.confirmFinancialHistoryStart({ calendarDate: selectedDate }), 'Financial history start confirmed.')} /></>}
@@ -95,15 +95,15 @@ export default function PlanningScreen() {
       {(history.status === 'invalid' || history.status === 'transaction_history_invalid') && <><Text style={[local.status, { color: palette.danger }]}>Financial history needs attention</Text><Text style={ui.muted}>{history.status === 'invalid' ? 'The saved history start is invalid.' : 'A transaction date is invalid.'} Forecasting is disabled safely. Repair the underlying data and refresh; no automatic change will be made.</Text></>}
       {loadError && <Text style={ui.error}>Refresh failed: {loadError}. The information shown may be out of date.</Text>}{historyError && <Text style={ui.error}>{historyError}</Text>}{historyNotice && <Text style={local.success}>{historyNotice}</Text>}
     </Card>    <Card><Text style={local.heroLabel}>{FORECAST_TOTAL_LABEL}</Text>{forecast ? <><Text style={local.heroValue}>{formatPKR(forecast.total.blend)}</Text><Text style={ui.muted}>Range {formatPKR(forecast.total.low)} – {formatPKR(forecast.total.high)}</Text></> : <><Text style={local.unavailable}>Forecast unavailable</Text><Text style={ui.muted}>{forecastReadinessText(forecastResult)}</Text></>}</Card>
-    {forecast && <Card><SectionTitle>{FORECAST_CATEGORY_LABEL}</SectionTitle>{rows.map(([name, value]) => <View key={name} style={local.barRow}><Text numberOfLines={1} style={local.name}>{name.replaceAll('_', ' ')}</Text><View style={local.track}><View style={[local.bar, { width: `${Math.max(3, value.blend / max * 100)}%` }]} /></View><Text style={local.value}>{formatPKR(value.blend)}</Text></View>)}</Card>}
+    {forecast && <Card><SectionTitle>{FORECAST_CATEGORY_LABEL}</SectionTitle>{rows.map(([name, value]) => <View key={name} style={local.barRow}><Text numberOfLines={1} style={local.name}>{name.replaceAll('_', ' ')}</Text><View style={local.track}><View style={[local.bar, { width: `${forecastBarPercent(value.blend, max)}%` }]} /></View><Text style={local.value}>{formatPKR(value.blend)}</Text></View>)}</Card>}
     <Card><SectionTitle>Can I afford it?</SectionTitle>
-      <Text style={local.label}>Item</Text><TextInput accessibilityLabel="Item name" value={item} onChangeText={setItem} style={local.input} placeholderTextColor={palette.muted} />
-      <View style={local.formRow}><View style={local.field}><Text style={local.label}>Price (PKR)</Text><TextInput accessibilityLabel="Price in PKR" keyboardType="number-pad" value={price} onChangeText={setPrice} style={local.input} placeholderTextColor={palette.muted} /></View><View style={local.field}><Text style={local.label}>Months</Text><TextInput accessibilityLabel="Months ahead" keyboardType="number-pad" value={months} onChangeText={setMonths} style={local.input} placeholderTextColor={palette.muted} /></View></View>
-      {checkError && <Text style={ui.error}>{checkError}</Text>}<PrimaryButton label={checking ? 'Checking…' : 'Check affordability'} onPress={check} disabled={checking} />
-      {result ? <AffordabilityResult assessment={result} itemName={item.trim()} /> : null}
+      <Text style={local.label}>Item</Text><TextInput accessibilityLabel="Item name" value={item} onChangeText={value => { purchaseController.invalidate(); setItem(value); }} style={local.input} placeholderTextColor={palette.muted} />
+      <View style={local.formRow}><View style={local.field}><Text style={local.label}>Price (PKR)</Text><TextInput accessibilityLabel="Price in PKR" keyboardType="number-pad" value={price} onChangeText={value => { purchaseController.invalidate(); setPrice(value); }} style={local.input} placeholderTextColor={palette.muted} /></View><View style={local.field}><Text style={local.label}>Months</Text><TextInput accessibilityLabel="Months ahead" keyboardType="number-pad" value={months} onChangeText={value => { purchaseController.invalidate(); setMonths(value); }} style={local.input} placeholderTextColor={palette.muted} /></View></View>
+      {checkError && <Text style={ui.error}>{checkError}</Text>}<PrimaryButton label={checking ? 'Checking…' : 'Check affordability'} onPress={check} disabled={checking || historySaving || loading} />
+      {purchase.result ? <AffordabilityResult assessment={purchase.result.assessment} itemName={purchase.result.itemName} /> : null}
     </Card>
     {forecast && <><Text style={ui.muted}>{forecastBasisLabel(forecastResult.qualifyingMonths)}</Text><Text style={ui.muted}>{forecast.method}</Text></>}
-  </ScrollView></Screen>;
+  </ScrollView></KeyboardAvoidingView></Screen>;
 }
 
 function AffordabilityResult({ assessment, itemName }: {
@@ -146,7 +146,7 @@ function AffordabilityResult({ assessment, itemName }: {
   );
 }
 
-function OpeningBalances() {
+function OpeningBalances({ onChanged }: { onChanged: () => void }) {
   const [rows, setRows] = useState<{ account: Awaited<ReturnType<typeof api.accounts>>[number]; state: Awaited<ReturnType<typeof api.openingBalanceState>> }[]>([]);
   const [values, setValues] = useState<Record<number, string>>({});
   const [busy, setBusy] = useState<number | null>(null);
@@ -157,10 +157,7 @@ function OpeningBalances() {
   }, []);
   const [runner] = useState(() => createOpeningBalanceRunner<typeof rows>({ saving: (value) => { if (!value) setBusy(null); }, error: setError, loaded: setRows, savedButStale: (message) => setError(`Change saved, but refresh failed: ${message}`) }));
   const load = useCallback(() => runner.load(fetchRows), [fetchRows, runner]);
-  useEffect(() => {
-    // Initial repository synchronization for this independently scoped workflow.
-    void load().catch((caught) => setError(caught instanceof Error ? caught.message : 'Could not load opening balances.'));
-  }, [load]);
+  useFocusEffect(useCallback(() => { void load(); return runner.invalidate; }, [load, runner]));
   const submit = async (accountId: number, state: (typeof rows)[number]['state']) => {
     if (busy !== null || state.status !== 'available') return;
     const raw = values[accountId] ?? String(state.openingBalance ?? state.candidate);
@@ -168,6 +165,7 @@ function OpeningBalances() {
     setBusy(accountId); setError(null);
     try {
       const result = await runner.submit(() => state.openingBalance === null ? api.confirmOpeningBalance(accountId, Number(raw)) : api.correctOpeningBalance(accountId, state.openingBalance, Number(raw)), fetchRows);
+      if (result?.status === 'saved' || result?.status === 'saved_refresh_failed') onChanged();
       if (result?.status === 'saved') setValues((current) => ({ ...current, [accountId]: '' }));
     } finally { if (busy !== null) setBusy(null); }
   };

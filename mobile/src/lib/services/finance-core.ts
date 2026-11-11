@@ -126,6 +126,16 @@ type AffordabilitySummary = {
   savings: { threeMonthAvg: number };
 };
 
+export function calculateEmergencyBuffer(averageMonthlySpend: number, emergencyFundTarget: number) {
+  requireSafeAffordabilityMoney(emergencyFundTarget);
+  if (emergencyFundTarget < 0) throw new Error(affordabilityMoneyError);
+  return Math.max(emergencyFundTarget, checkedAffordabilityMultiply(averageMonthlySpend, 3));
+}
+
+export function riskBandForScore(score: number): Risk['band'] {
+  return score <= 30 ? 'low' : score <= 60 ? 'moderate' : 'high';
+}
+
 export function calculateAffordability(
   input: { itemName: string; price: number; monthsAhead: number },
   summary: AffordabilitySummary,
@@ -141,8 +151,7 @@ export function calculateAffordability(
   requireSafeAffordabilityMoney(summary.spend.threeMonthAvg);
   requireSafeAffordabilityMoney(summary.savings.threeMonthAvg);
 
-  const threeMonthSpend = checkedAffordabilityMultiply(summary.spend.threeMonthAvg, 3);
-  const buffer = Math.max(profile.emergencyFundTarget, threeMonthSpend);
+  const buffer = calculateEmergencyBuffer(summary.spend.threeMonthAvg, profile.emergencyFundTarget);
   const monthlySavings = Math.max(0, summary.savings.threeMonthAvg);
   const projectedSavings = checkedAffordabilityMultiply(input.monthsAhead, monthlySavings);
   const projected = checkedAffordabilityAdd(summary.totalBalance, projectedSavings);
@@ -247,11 +256,22 @@ export function calculateRisk(
   const spendRatio = Math.min(1, summary.spend.thisMonthMTD / Math.max(1, profile.monthlyIncome));
   const volatility = Math.min(1, stdev(recentMonths) / Math.max(1, meanMoney(recentMonths)));
   const savingsInverse = Math.min(1, 1 - Math.max(0, summary.savings.rate) / 0.2);
-  const score = Math.round(100 * (0.35 * spendRatio + 0.2 * volatility + 0.2 * savingsInverse + 0.15 * (total ? risky / total : 0) + 0.1 * (total ? anomalies / total : 0)));
+  const highRiskShare = total ? risky / total : 0;
+  const anomalyShare = total ? anomalies / total : 0;
+  const score = Math.round(100 * (0.35 * spendRatio + 0.2 * volatility + 0.2 * savingsInverse + 0.15 * highRiskShare + 0.1 * anomalyShare));
   const reasons = [] as string[];
   if (spendRatio > .85) reasons.push('Monthly spending is close to income.');
   if (volatility > .25) reasons.push('Spending has varied significantly recently.');
   if (savingsInverse > .5) reasons.push('Savings are below the 20% target.');
-  if (!reasons.length) reasons.push('Current indicators are within healthy ranges.');
-  return { score, band: score < 30 ? 'low' : score < 60 ? 'moderate' : 'high', reasons };
+  if (highRiskShare > .25) reasons.push('Categories marked high-risk account for more than a quarter of recorded spending.');
+  if (anomalyShare > .05) reasons.push('Flagged transactions account for more than 5% of recorded spending.');
+  if (!reasons.length) reasons.push('Current indicators are within the existing rule thresholds.');
+  return { score, band: riskBandForScore(score), reasons, factors: [
+    { label: 'Spending relative to configured income', value: spendRatio, weight: .35 },
+    { label: 'Monthly spending variation', value: volatility, weight: .20 },
+    { label: 'Savings below the 20% rule', value: savingsInverse, weight: .20 },
+    { label: 'Share of spending in marked high-risk categories', value: highRiskShare, weight: .15 },
+    { label: 'Share of spending flagged as unusual', value: anomalyShare, weight: .10 },
+  ] };
+
 }

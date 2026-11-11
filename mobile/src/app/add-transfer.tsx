@@ -1,3 +1,4 @@
+import { userFacingError } from '@/lib/services/user-facing-error';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -50,7 +51,7 @@ export default function AddTransferScreen() {
       else await api.createTransfer(input, requestId.current ??= createTransactionRequestId());
       router.back();
     } catch (caught) {
-      setFormError(caught instanceof Error ? caught.message : 'Could not save transfer.');
+      setFormError(userFacingError(caught, 'Could not save transfer.'));
     } finally {
       setSaving(false);
     }

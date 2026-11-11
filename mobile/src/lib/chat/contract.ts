@@ -1,3 +1,4 @@
+import { parsePlanning, planningAnswer, type PlanningContext } from './planning';
 // Dependency-free wire contract shared with the mobile-only server handler.
 export const CHAT_VERSION = 1;
 export const MAX_CHAT_MESSAGES = 12;
@@ -14,6 +15,7 @@ export type Period = {
   categories: { name: string; total: number }[];
 };
 export type FinancialContext = {
+  planning?: PlanningContext;
   source: 'mobile_sqlite';
   asOf: string;
   timeZone: 'Asia/Karachi';
@@ -95,7 +97,7 @@ export function parseChatRequest(value: unknown): ChatRequest {
   });
   if (messages.at(-1)?.role !== 'user') throw new Error('A question is required.');
   const ctx = record(row.context);
-  keys(ctx, ['source', 'asOf', 'timeZone', 'history', 'forecast', 'balances', 'current', 'previous']);
+  keys(ctx, ['source', 'asOf', 'timeZone', 'history', 'forecast', 'balances', 'current', 'previous', 'planning']);
   if (ctx.source !== 'mobile_sqlite' || ctx.timeZone !== 'Asia/Karachi') throw new Error('Mobile context is required.');
   const asOf = instant(ctx.asOf);
   const historyRow = record(ctx.history);
@@ -129,7 +131,13 @@ export function parseChatRequest(value: unknown): ChatRequest {
       : history.status;
     if (period.coverage !== expected) throw new Error('Inconsistent history coverage.');
   }
-  return { version: 1, messages, context: { source: 'mobile_sqlite', asOf, timeZone: 'Asia/Karachi', history, forecast, balances, current, previous } };
+  const planning = ctx.planning === undefined ? undefined : parsePlanning(ctx.planning);
+  if (planning) {
+    const detail = planning.forecast;
+    if (detail.status !== forecast.status || detail.availableCompleteMonths !== forecast.availableCompleteMonths
+      || (detail.status === 'ready' && detail.forecast.asOf !== asOf)) throw new Error('Inconsistent planning snapshot.');
+  }
+  return { version: 1, messages, context: { source: 'mobile_sqlite', asOf, timeZone: 'Asia/Karachi', history, forecast, balances, current, previous, ...(planning ? { planning } : {}) } };
 }
 
 export function recentMessages(messages: ChatMessage[]): ChatMessage[] {
@@ -142,6 +150,8 @@ const displayCategory = (name: string) => JSON.stringify(name.replaceAll('_', ' 
 
 export function buildAnswerPlan(request: ChatRequest): AnswerPlan {
   const { current, previous } = request.context;
+  const planning = planningAnswer(request.messages, request.context.planning, previous.expense);
+  if (planning) return planning;
   const question = request.messages.at(-1)!.content.toLowerCase();
   const compare = /\bcompar|\bversus\b|\bvs\b|\bchange\b|\bdifference\b/.test(question);
   const lastMonth = /\blast month\b|\bprevious month\b|\bprevious complete month\b/.test(question);

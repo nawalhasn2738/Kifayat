@@ -3,7 +3,7 @@ import { buildAnswerPlan, parseChatRequest, parseChatResponse, recentMessages, r
 
 export type ChatClientDependencies = {
   endpoint: string;
-  getContext: () => Promise<FinancialContext>;
+  getContext: (messages: ChatMessage[]) => Promise<FinancialContext>;
   fetch: typeof fetch;
   timeoutMs?: number;
 };
@@ -11,7 +11,7 @@ export type ChatClientDependencies = {
 export function createChatClient(dependencies: ChatClientDependencies) {
   return async function chat(messages: ChatMessage[]): Promise<ChatResponse> {
     let request: ChatRequest;
-    try { request = parseChatRequest({ version: 1, messages: recentMessages(messages), context: await dependencies.getContext() }); }
+    try { request = parseChatRequest({ version: 1, messages: recentMessages(messages), context: await dependencies.getContext(recentMessages(messages)) }); }
     catch { throw new Error('Local financial data could not be read safely. Check Financial Planning and try again.'); }
     // No configuration still permits a fully local, deterministic answer without disclosing data.
     if (!dependencies.endpoint) return { version: 1, text: renderAnswer(buildAnswerPlan(request)), source: 'mobile_sqlite',
@@ -29,7 +29,7 @@ export function createChatClient(dependencies: ChatClientDependencies) {
             headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request), signal: controller.signal, redirect: 'error' });
           if (!response.ok) throw new Error('The AI service is unavailable. Try again.');
           try { return parseChatResponse(await response.json(), request); }
-          catch { throw new Error('The AI service returned an unsupported answer. Try again.'); }
+          catch { return { version: 1 as const, text: renderAnswer(buildAnswerPlan(request)), source: 'mobile_sqlite' as const, mode: 'deterministic' as const, asOf: request.context.asOf }; }
         })(),
         new Promise<never>((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('The AI request timed out. Try again.')); }, dependencies.timeoutMs ?? 25_000); }),
       ]);

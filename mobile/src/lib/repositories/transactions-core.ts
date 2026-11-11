@@ -1,4 +1,5 @@
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { validateActivityQuery, activityCursorCondition, activitySearch, type ActivityQuery } from '../validation/activity';
+import { and, desc, eq, isNull, gte, lt, sql } from 'drizzle-orm';
 import { LOCAL_USER_ID } from '@/lib/db/seed';
 import { accounts, categories, categoryApplicability, transactions } from '@/lib/db/schema';
 import type { AppDatabase } from '@/lib/db/types';
@@ -97,7 +98,7 @@ const selection = {
   amount: transactions.amount, type: transactions.type, merchant: transactions.merchant,
   description: transactions.description, isAnomaly: transactions.isAnomaly,
   categoryId: categories.id, categoryName: categories.name,
-  accountId: accounts.id, accountName: accounts.name, accountType: accounts.type,
+  accountUserId: accounts.userId, accountId: accounts.id, accountName: accounts.name, accountType: accounts.type,
 };
 
 export function createTransactionRepository<TRunResult>(
@@ -133,6 +134,7 @@ export function createTransactionRepository<TRunResult>(
 
   function mapTransaction(row: Selected): Transaction {
     const valid = validatePersistedTransaction(row);
+    if (row.userId !== dependencies.userId || row.accountUserId !== dependencies.userId) throw new Error('Transaction account ownership is inconsistent.');
     return { id: valid.id, clientId: valid.clientId, date: valid.date, amount: valid.amount, type: valid.type,
       merchant: row.merchant, description: row.description, isAnomaly: row.isAnomaly,
       category: row.categoryId ? { id: row.categoryId, name: row.categoryName! } : null,
@@ -142,6 +144,19 @@ export function createTransactionRepository<TRunResult>(
   async function listTransactions(limit = 100) {
     return (await selectBase().where(eq(transactions.userId, dependencies.userId))
       .orderBy(desc(transactions.date)).limit(limit)).map(mapTransaction);
+  }
+
+  async function listTransactionActivity(query: ActivityQuery = {}) {
+    const { filters, cursor, pageSize } = validateActivityQuery(query);
+    const conditions = [eq(transactions.userId, dependencies.userId), eq(accounts.userId, dependencies.userId),
+      filters.type !== 'all' ? eq(transactions.type, filters.type) : undefined,
+      filters.categoryId === null ? isNull(transactions.categoryId) : filters.categoryId !== undefined ? eq(transactions.categoryId, filters.categoryId) : undefined,
+      filters.accountId !== undefined ? eq(transactions.accountId, filters.accountId) : undefined,
+      filters.start ? gte(transactions.date, filters.start) : undefined, filters.endExclusive ? lt(transactions.date, filters.endExclusive) : undefined,
+      activityCursorCondition(transactions.date, transactions.id, cursor, 'transaction'),
+      activitySearch([transactions.merchant, transactions.description], filters.search),
+    ];
+    return (await selectBase().where(and(...conditions)).orderBy(desc(transactions.date), desc(transactions.id)).limit(pageSize + 1)).map(mapTransaction);
   }
 
   async function listAllTransactions() {
@@ -267,5 +282,5 @@ export function createTransactionRepository<TRunResult>(
     });
   }
 
-  return { listTransactions, listAllTransactions, getTransaction, createTransaction, updateTransaction, deleteTransaction };
+  return { listTransactions, listTransactionActivity, listAllTransactions, getTransaction, createTransaction, updateTransaction, deleteTransaction };
 }
