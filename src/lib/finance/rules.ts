@@ -1,3 +1,4 @@
+import { calculateSavingsRecommendation, calculateInstallmentSafety } from "../../../mobile/src/lib/finance/planning-rules"
 /**
  * Pure financial rule functions. The chatbot's NUMBERS come from here, never from the LLM.
  * See plan §8.
@@ -8,7 +9,6 @@ import {
   HEALTHY_SAVINGS_RATE,
   HIGH_RISK_CATEGORIES,
   RISK_WEIGHTS,
-  SAFE_INSTALLMENT_RATIO,
 } from "@/lib/finance/constants"
 import {
   categoryStats,
@@ -202,36 +202,12 @@ export function affordability(
   }
 }
 
-function emi(price: number, apr: number, months: number) {
-  if (apr === 0) return Math.ceil(price / months)
-  const r = apr / 12
-  return Math.ceil((price * r * Math.pow(1 + r, months)) / (Math.pow(1 + r, months) - 1))
-}
-
 export function installmentSafety(
   ctx: FinancialContext,
   args: { price: number; months: number; apr: number },
 ): InstallmentResult {
-  const monthly = emi(args.price, args.apr, args.months)
-  const essentialAvg =
-    ctx.stats3
-      .filter((s) => s.isEssential)
-      .reduce((sum, s) => sum + s.total, 0) / 3
-  const disposable = Math.max(1, ctx.income - Math.round(essentialAvg))
-  const ratio = monthly / disposable
-  const safe = ratio <= SAFE_INSTALLMENT_RATIO
-  const reason = safe
-    ? `EMI ${monthly} is ${(ratio * 100).toFixed(0)}% of disposable ${disposable}, within ${SAFE_INSTALLMENT_RATIO * 100}% safe ratio`
-    : `EMI ${monthly} is ${(ratio * 100).toFixed(0)}% of disposable ${disposable}, EXCEEDS ${SAFE_INSTALLMENT_RATIO * 100}% safe ratio`
-  return {
-    price: args.price,
-    months: args.months,
-    apr: args.apr,
-    monthly,
-    ratio: Math.round(ratio * 100) / 100,
-    safe,
-    reason,
-  }
+  const essentialAvg = ctx.stats3.filter((s) => s.isEssential).reduce((sum, s) => sum + s.total, 0) / 3
+  return calculateInstallmentSafety({ income: ctx.income, essentialMonthlySpend: essentialAvg }, args)
 }
 
 export function monthlyHealth(ctx: FinancialContext) {
@@ -264,20 +240,8 @@ export function monthlyHealth(ctx: FinancialContext) {
 }
 
 export function savingsRecommendation(ctx: FinancialContext) {
-  const target = Math.round(ctx.income * HEALTHY_SAVINGS_RATE)
-  const expectedExpenses = Math.round(mean(ctx.last3MonthsSpend) || ctx.monthlyExpenseAvg)
-  const dynamicCap = Math.max(0, ctx.income - expectedExpenses)
-  const recommended = Math.min(target, dynamicCap > 0 ? dynamicCap : target)
-  return {
-    targetByRule: target,
-    expectedExpenses,
-    headroom: dynamicCap,
-    recommendedMonthlyTransfer: recommended,
-    reason:
-      dynamicCap < target
-        ? `Income ${ctx.income} − expenses ${expectedExpenses} = headroom ${dynamicCap} which is below 20% target ${target}; suggesting headroom-aligned saving`
-        : `20% of income (${target}) is achievable given headroom ${dynamicCap}; standard 50/30/20 rule applies`,
-  }
+  return calculateSavingsRecommendation({ income: ctx.income,
+    expectedExpenses: Math.round(mean(ctx.last3MonthsSpend) || ctx.monthlyExpenseAvg) })
 }
 
 export async function goalProgress(userId: number, ctx: FinancialContext, name?: string) {

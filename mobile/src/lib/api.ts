@@ -1,46 +1,55 @@
-import type { Account, Affordability, Category, Forecast, Risk, Summary, Transaction } from './types';
+import { getDashboard } from '@/lib/services/dashboard';
+import { getActivity } from '@/lib/services/activity';
+import { getSavingsPlanning } from '@/lib/services/savings-planning';
+import { createGoal, updateGoalTarget } from '@/lib/repositories/savings-goals';
+import { getProfileSettings, saveProfileSettings, listAccounts, listActiveAccounts, listCategories } from '@/lib/repositories/catalog';
+import { archiveAccount, createAccount, deleteUnusedAccount, listManagedAccounts, renameAccount, restoreAccount } from '@/lib/repositories/accounts';
+import { CategoryApplicabilityError, OverdraftConfirmationRequiredError, type CategoryApplicabilityErrorCode, type TransactionCreationOptions, type TransactionMutationOptions } from '@/lib/repositories/transactions-core';
+import { createTransaction, deleteTransaction, getTransaction, updateTransaction } from '@/lib/repositories/transactions';
+import { getAffordability, getForecast, getRisk, getSummary } from '@/lib/services/finance';
+import {
+  confirmFinancialHistoryStart,
+  correctFinancialHistoryStart,
+  getHistoryWorkflowState,
+  recoverFinancialProfile,
+} from '@/lib/services/history-workflow';
+import type { TransactionInput } from '@/lib/validation/transaction';
+import { createTransfer, deleteTransfer, getTransfer, listTransfers, updateTransfer } from '@/lib/repositories/transfers';
+import type { TransferInput } from '@/lib/validation/transfer';
+import { confirmOpeningBalance, correctOpeningBalance, getOpeningBalanceState } from '@/lib/repositories/opening-balances';
+import { createChatClient } from '@/lib/services/chat-client-core';
+import { getChatContext } from '@/lib/services/chat-context';
 
-const configuredUrl = process.env.EXPO_PUBLIC_API_URL?.trim();
-export const API_URL = (configuredUrl || 'http://192.168.1.5:3000').replace(/\/$/, '');
-
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...init?.headers },
-  });
-  const body = await response.json().catch(() => null);
-  if (!response.ok) {
-    const message = body && typeof body.error === 'string' ? body.error : `Request failed (${response.status})`;
-    throw new Error(message);
-  }
-  return body as T;
-}
-
+export const AI_PROXY_URL = process.env.EXPO_PUBLIC_AI_PROXY_URL?.replace(/\/$/, '') ?? '';
+export const API_URL = 'Local SQLite';
 export const api = {
-  summary: () => request<Summary>('/api/summary'),
-  risk: () => request<Risk>('/api/risk'),
-  forecast: () => request<Forecast>('/api/forecast'),
-  categories: () => request<Category[]>('/api/categories'),
-  accounts: () => request<Account[]>('/api/accounts'),
-  transactions: (page = 1, pageSize = 25) =>
-    request<{ items: Transaction[]; total: number; page: number; pageSize: number }>(
-      `/api/transactions?page=${page}&pageSize=${pageSize}`,
-    ),
-  transaction: (id: number) => request<Transaction>(`/api/transactions/${id}`),
-  createTransaction: (input: {
-    date: string;
-    amount: number;
-    type: 'income' | 'expense';
-    categoryId: number | null;
-    accountId: number;
-    merchant: string | null;
-    description: string | null;
-  }) => request<Transaction>('/api/transactions', { method: 'POST', body: JSON.stringify(input) }),
-  affordability: (input: { itemName: string; price: number; monthsAhead: number }) =>
-    request<Affordability>('/api/affordability', { method: 'POST', body: JSON.stringify(input) }),
-  chat: (messages: { role: 'user' | 'assistant'; content: string }[]) =>
-    request<{ text: string }>('/api/mobile-chat', { method: 'POST', body: JSON.stringify({ messages }) }),
+  dashboard: getDashboard,
+  savingsPlanning: getSavingsPlanning, createGoal, updateGoalTarget,
+  profileSettings: getProfileSettings, saveProfileSettings,
+  summary: getSummary, risk: getRisk, forecast: getForecast, categories: listCategories,
+  accounts: listAccounts, activeAccounts: listActiveAccounts, managedAccounts: listManagedAccounts,
+  createAccount, renameAccount, archiveAccount, restoreAccount, deleteUnusedAccount,
+  historyState: getHistoryWorkflowState,
+  recoverFinancialProfile,
+  confirmFinancialHistoryStart,
+  correctFinancialHistoryStart,
+  transaction: async (id: number) => { const tx = await getTransaction(id); if (!tx) throw new Error('Transaction not found.'); return tx; },
+  createTransaction: (input: TransactionInput, options: TransactionCreationOptions) => createTransaction(input, options),
+  updateTransaction: (id: number, input: TransactionInput, options?: TransactionMutationOptions) => updateTransaction(id, input, options),
+  deleteTransaction,
+  transfers: listTransfers,
+  transfer: async (id: number) => { const transfer = await getTransfer(id); if (!transfer) throw new Error('Transfer not found.'); return transfer; },
+  createTransfer: (input: TransferInput, clientId: string) => createTransfer(input, clientId),
+  updateTransfer,
+  deleteTransfer,
+  openingBalanceState: getOpeningBalanceState,
+  confirmOpeningBalance,
+  correctOpeningBalance,
+  activity: getActivity,
+  affordability: getAffordability,
+  chat: createChatClient({ endpoint: AI_PROXY_URL, getContext: getChatContext, fetch: (...args) => fetch(...args) }),
 };
-
-export const formatPKR = (value: number) =>
-  `PKR ${Math.abs(Math.round(value)).toLocaleString('en-PK')}`;
+export { CategoryApplicabilityError, OverdraftConfirmationRequiredError };
+export type { CategoryApplicabilityErrorCode, TransactionCreationOptions, TransactionMutationOptions };
+export const createTransactionRequestId = () => `local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+export { formatPKR, formatTransactionPKR, transactionAmountTone } from '@/lib/finance/money-format';

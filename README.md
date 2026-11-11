@@ -1,254 +1,116 @@
 # Kifayat
 
-Kifayat is an AI-assisted personal finance application built for web and mobile. It helps a demo user review income and expenses, inspect financial risk, forecast spending, evaluate purchases, manage transactions, and ask questions about their financial data.
+Kifayat is a local-first personal-finance application centered on its Expo/React Native mobile client. Financial records are stored on-device with Expo SQLite and accessed through Drizzle ORM, so accounts, transactions, summaries, and planning features do not require the web API. The existing Next.js/Prisma backend remains available for server-side capabilities such as secure AI requests; private provider credentials must never be bundled into the mobile app.
 
-The repository contains two clients sharing one backend:
+Start with [Final Mobile Readiness and Android acceptance](mobile/docs/FINAL-MOBILE-READINESS.md). [mobile/README.md](mobile/README.md) is the short developer entry point.
 
-- A Next.js web application and API server at the repository root.
-- A native Expo/React Native application in [`mobile/`](mobile/README.md).
+## Current engineering status
 
-The mobile application is built with native React Native components. It is not a WebView or a wrapper around the website.
+The native mobile implementation is complete for the supported local single-user scope. Current stack: Expo SDK 58, React Native 0.88.1, React 19.3, Expo Router, Drizzle ORM and Expo SQLite. The secondary web application uses Next.js 16, React 19 and Prisma with a separate SQLite database. Production multi-user deployment is outside the completed scope.
 
-## Main features
+The project owner reports successful physical Android acceptance. Device/runtime versions and individual checklist results were not supplied with this handover; acceptance of the SDK 58 upgrade is not independently established. Automated checks are separate from device acceptance and are not an independent security or penetration test.
 
-- Financial overview with balances, spending, income, savings rate, and risk indicators
-- Transaction browsing, creation, account selection, and transaction details
-- Spending forecasts with category-level estimates
-- Affordability analysis with emergency-buffer protection
-- Groq-powered financial chat grounded in server-side finance tools
-- Local transaction retrieval using Hugging Face embeddings
-- Responsive Next.js web interface
-- Native Expo application for Android and iOS
-- Stack and Bottom Tab navigation with route parameters and custom headers
+Phase 0 established the protected mobile SQLite/Drizzle baseline while retaining the existing Next.js/Prisma backend. Phase 1 established the financial-rule and testing foundation. Phase 2 completed the supported financial-core reliability work:
 
-## Technology stack
+- catalog, transaction, and chat repositories have injectable cores; production wrappers retain the Expo SQLite singleton;
+- fresh in-memory SQLite tests cover generated migrations, foreign keys, transaction rollback, and repository mutations;
+- income/expense creation, edits, account moves, and deletion use checked integer arithmetic and atomic balance updates;
+- client request IDs make transaction creation idempotent and reject conflicting reuse;
+- persisted transaction rows are validated before reporting, reconciliation, or mutation logic uses them;
+- reporting retrieves complete transaction history, calculates savings as income minus expenses, and excludes transactions later than a shared report cutoff;
+- affordability validates whole-month horizons from 1 through 120 and checks monetary intermediates;
+- new future-dated income and expense transactions are rejected; existing legacy future rows remain preserved under the documented policy.
 
-### Mobile
+Phase 4-6 additionally implement grounded local-ledger chat, editable financial settings, savings goals/recommendations, installment arithmetic, filtered and paginated Activity, and the completed native Overview. Integrated repository/service/controller journeys and migration safety are host-verified; physical Android acceptance is owner-reported; live-provider acceptance remains unverified.
 
-- Expo SDK 57
-- React Native 0.86
-- React 19
-- Expo Router
-- TypeScript
+Phase 3 adds the approved `Asia/Karachi` reporting calendar, financial-history readiness and UI workflows, category applicability, signed PKR presentation, dedicated transfers, and explicit opening-balance reconciliation with append-only audits. These capabilities are implemented and host-tested; physical Android acceptance is owner-reported, with no independently recorded device/runtime details.
 
-### Web and backend
+## Financial data integrity
 
-- Next.js 16 App Router
-- React 19
-- TypeScript
-- Prisma 6
-- SQLite
-- Tailwind CSS
-- Recharts
+Supported income and expense mutations currently enforce these invariants:
 
-### AI and financial logic
+- user-entered PKR amounts are complete positive whole-rupee strings, capped at PKR 2,147,483,647, with no silent truncation or rounding;
+- canonical UTC transaction dates and supported income/expense signs are validated at the repository boundary;
+- create, update, account moves, and deletion keep transaction rows and balance effects in one SQLite transaction with checked safe-integer arithmetic;
+- account ownership, idempotent request reuse, conflicting request-ID reuse, and inconsistent stored account references are rejected before unsafe mutation;
+- forced-failure tests prove rollback for create, update, and delete in the host SQLite test environment;
+- persisted transaction rows are validated before list/get/reporting/reconciliation use, and invalid data fails clearly without repair;
+- opening balances remain distinct from current balances and ledger activity; nullable values are unconfirmed, suggestions are never automatic, and confirmations/corrections are stale-safe, audited, and atomic;
+- expenses that would create a negative balance require an exact repository-generated overdraft confirmation tied to the account and projected balance; stale confirmations are rejected;
+- future-dated income/expense creation and date-changing edits are rejected, while existing future rows remain preserved and may be deleted atomically;
+- dedicated transfers apply equal-and-opposite account effects atomically and remain excluded from income, expenses, savings, and forecasts; legacy single-account transfer rows stay readable and mutation-blocked.
 
-- Groq through the Vercel AI SDK
-- Hugging Face Transformers.js for local embeddings
-- Deterministic finance rules for risk, affordability, savings, and monthly health
-- EWMA and linear-trend spending forecasts
+Category applicability is enforced through the existing explicit mapping table; display grouping is not an assignment rule.
 
-## Architecture
+## Testing and validation
 
-```text
-Kifayat/
-├── mobile/                         Expo/React Native client
-│   ├── src/app/                    Screens and Expo Router layouts
-│   ├── src/components/             Shared native UI components
-│   ├── src/hooks/                  Mobile data-loading hooks
-│   └── src/lib/                    Typed API client and mobile types
-├── prisma/                         Prisma schema and local SQLite database
-├── scripts/                        Seed, embedding, and inspection scripts
-├── src/app/                        Next.js pages and API routes
-├── src/components/                 Web UI components
-├── src/lib/                        Database, finance, forecast, RAG, and chat logic
-└── tests/                          Finance-rule regression tests
+The mobile suite uses Node's test runner through `tsx`. Database-contract smoke tests use `node:sqlite`; repository integration tests use Drizzle with `better-sqlite3@12.11.1` and `Database(':memory:')`. Tests do not open the production `kifayat.db`.
+
+From `mobile/`:
+
+```sh
+npm test
+npm run typecheck
+npm run lint
+npm run check
 ```
 
-The mobile client calls the Next.js API over HTTP. Prisma, SQLite, Groq credentials, embeddings, and financial business logic remain on the server and are not bundled into the mobile application.
+Final local mobile verification (11 November 2026): **316 tests passed, 0 failed**, with typecheck and lint passing. Tests include migrations, disposable SQLite integration, complete ledger journeys and mocked chat providers. They do not prove native Expo SQLite behavior, physical navigation or live AI. The dedicated [Mobile CI workflow](.github/workflows/mobile-ci.yml) runs the same mobile commands; remote execution has not been verified in this handover. Root/web CI is separate.
 
-## Mobile navigation
+## Repository structure
 
-Kifayat uses two navigator types:
+- `mobile/src/app/` — Expo Router screens and navigation.
+- `mobile/src/lib/db/` — Expo SQLite client, Drizzle schema, seed logic, and shared database types.
+- `mobile/src/lib/repositories/` — injectable repository cores and Expo-backed production wrappers.
+- `mobile/src/lib/validation/` — authoritative transaction amount, date, type, and identifier validation.
+- `mobile/src/lib/services/` — summaries, affordability, forecasts, and risk calculations.
+- `mobile/drizzle/` — checked-in generated migration SQL, metadata, and bundled migration loader.
+- `mobile/tests/` — validation, migration-contract, database-contract, and repository integration tests.
+- `mobile/docs/` — approved financial rules, mutation audits, gap analysis, and SQLite test strategy.
+- `src/`, `prisma/`, and related root files — retained Next.js/Prisma backend and server-side services.
 
-```text
-Root Stack Navigator
-├── Bottom Tab Navigator
-│   ├── Overview
-│   ├── Transactions
-│   ├── Planning
-│   └── Kifayat Chat
-├── Add Transaction
-└── Transaction Details ([id])
-```
+The two applications do not share a live database. Mobile uses its app-sandboxed `kifayat.db`; web and its AI tools use the separately configured Prisma database. Cross-device synchronization and automatic import between them are not implemented.
 
-The Transactions header contains an **Add** button that opens the Add Transaction screen. Selecting a transaction passes its ID and source as route parameters to the Transaction Details screen, which reads the parameters and retrieves the authoritative record from the backend.
+## Development workflow
 
-## Requirements
+For a fresh checkout, install the locked mobile dependencies with `cd mobile` then `npm ci`. This handover does not install packages. Start the mobile client:
 
-- Node.js 22.13 or newer for Expo SDK 57
-- npm
-- Expo Go on a physical phone, or an Android/iOS development environment
-- A Groq API key for AI chat
-- Phone and development computer on the same Wi-Fi network for LAN testing
-
-## Environment configuration
-
-Create a root `.env` file based on [`.env.example`](.env.example):
-
-```env
-GROQ_API_KEY="your_groq_api_key"
-GROQ_MODEL="openai/gpt-oss-120b"
-DATABASE_URL="file:./dev.db"
-FINANCE_AS_OF_DATE="2026-05-10"
-```
-
-Create `mobile/.env` based on [`mobile/.env.example`](mobile/.env.example):
-
-```env
-EXPO_PUBLIC_API_URL=http://YOUR_COMPUTER_IPV4:3000
-```
-
-Find the computer's active Wi-Fi address on Windows with:
-
-```powershell
-ipconfig
-```
-
-Do not put `GROQ_API_KEY` in the mobile environment file or any `EXPO_PUBLIC_` variable. Expo public variables are included in the client bundle.
-
-## Installation
-
-Install the web/backend dependencies:
-
-```powershell
-npm install
-```
-
-Install the mobile dependencies:
-
-```powershell
+```sh
 cd mobile
-npm install
-cd ..
+npm start
 ```
 
-Initialize the local database when setting up a fresh clone:
+Useful commands from the repository root include:
 
-```powershell
-npx prisma migrate dev
-npx tsx scripts/seed.ts
+```sh
+npm run mobile:start
+npm run mobile:check
 ```
 
-Optional: precompute embeddings used by transaction retrieval:
+Database schema changes require a reviewed migration. Run `npm run db:generate` from `mobile/` only when intentionally changing the schema, then inspect the generated SQL and metadata before committing them. Keep real `.env` files, credentials, local databases, native signing material, dependency directories, and generated exports such as `mobile/dist-android/` out of source commits.
 
-```powershell
-npx tsx scripts/embed_all.ts
-```
+## Secondary web/backend setup
 
-The embedding command may download the configured model on its first run.
+The root project is separate from mobile. For a fresh web development checkout, run `npm ci` at the root, create a private `.env.local` using `.env.example` as a reference, and configure `DATABASE_URL` for a disposable web SQLite database (for example `file:./dev.db`, relative to the Prisma schema). The root example currently documents the optional AI endpoint and server variables; `DATABASE_URL` must be supplied separately. Run `npx prisma generate` and `npx prisma migrate deploy` before `npm run dev`. These are developer instructions, not commands executed against any real database during this handover. Never point them at the mobile ledger.
 
-## Running the project
+Root scripts include `npm run dev`, `build`, `start`, `test`, `typecheck`, `lint` and `check`. Root/web verification is separate and is not claimed here. Keep `GROQ_API_KEY` and optional `GROQ_MODEL` server-only. Mobile configuration uses `mobile/.env.example`; copy it to `mobile/.env.local` only if needed and restart Expo after edits.
 
-Start the backend and web application in the first terminal:
+## Known limitations and next steps
 
-```powershell
-npm run dev:phone
-```
+The following work is not complete:
 
-Start Expo in a second terminal:
+- owner-reported Android acceptance lacks a device/version checklist record; SDK 58 device acceptance should be recorded;
+- existing legacy future-dated rows can still make stored balances differ from cutoff-filtered reporting actuals;
+- refunds, pending transactions, and soft deletion remain unsupported;
+- independently recorded rendered chat evidence and live-provider verification remain unavailable; seed rollback, conversation persistence/retries and integrated journeys have disposable-database coverage;
+- React Native overdraft-dialog interactions do not yet have automated component tests;
+- root/web checks were not runnable in the latest audit environment because root dependencies were absent;
+- the app uses `LOCAL_USER_ID=1`; production authentication, cloud synchronization, multi-user cloud authorization and production backup/restore are not implemented.
 
-```powershell
-cd mobile
-npm start -- --lan
-```
+Mobile chat uses a minimal SQLite-backed monthly/planning aggregate snapshot for supported recorded-total, category, forecast and purchase-affordability questions. Its dedicated `/api/mobile-chat` route has no Prisma demo tools and validates constrained explanations of the supplied facts. The older web chat remains a separate demo-ledger surface. No mobile-to-web financial synchronization exists. See [the mobile chat contract and setup](mobile/docs/phase-4-mobile-chat.md).
 
-Scan the displayed QR code with Expo Go. If Windows Firewall asks for access, allow Node.js only on trusted private networks.
+Optional AI generation requires a separately operated secure HTTPS backend. Only that backend may hold provider API keys; no secret should be placed in an `EXPO_PUBLIC_*` variable.
 
-Web application:
+## Roadmap
 
-```text
-http://localhost:3000
-```
-
-For a physical phone, use the computer's LAN address instead of `localhost`, for example:
-
-```text
-Backend: http://192.168.1.5:3000
-Expo:   exp://192.168.1.5:8081
-```
-
-The IP address may change when reconnecting to Wi-Fi. Update `mobile/.env` when that happens.
-
-## Available commands
-
-### Web and backend
-
-```powershell
-npm run dev             # Start Next.js locally
-npm run dev:phone       # Start Next.js on LAN interfaces
-npm run typecheck       # Type-check web/backend code
-npm run lint            # Lint web/backend code
-npm test                # Run finance regression tests
-npm run build           # Create a production web build
-npm run check           # Run the complete web/backend check
-```
-
-### Mobile
-
-Run these commands from `mobile/`:
-
-```powershell
-npm start               # Start Expo
-npm run typecheck       # Type-check mobile code
-npm run lint            # Lint mobile code
-npm run check           # Run mobile type-check and lint
-npx expo-doctor         # Validate Expo configuration
-npx expo export --platform android
-```
-
-## Verification status
-
-The following checks were completed successfully during development:
-
-- Mobile TypeScript and ESLint
-- Expo Doctor: 21/21 checks
-- Android Expo/Hermes bundle export
-- Web/backend TypeScript and ESLint
-- Six finance regression tests
-- Next.js production build
-- LAN API and Expo manifest requests
-- Transaction ID parameter and details API flow
-- Browser CORS request and preflight handling
-
-Always run the checks again after cloning or making changes because dependency, environment, and operating-system differences can affect results.
-
-## Data and external services
-
-- The development database is local SQLite and is not committed.
-- Seed data represents a synthetic Pakistani personal-finance profile.
-- Groq is the only required external AI service for chat.
-- Local embeddings do not require a vector database.
-- The finance API currently operates as a single demo user.
-
-## Known limitations
-
-- Authentication and multi-user authorization are not implemented.
-- The application does not connect to real banks.
-- The mobile client depends on the development computer while using the local backend.
-- A public release requires a hosted HTTPS backend and production database.
-- Forecasting is based on a small demo dataset and should not be treated as financial advice.
-- Store distribution still requires final branding assets, signing, privacy documentation, and EAS configuration.
-
-Do not expose the local development server directly to the public internet.
-
-## Documentation
-
-- [Mobile setup and navigation](mobile/README.md)
-- [Software requirements specification](SRS.md)
-- [Example backend environment](.env.example)
-- [Example mobile environment](mobile/.env.example)
-
-## License
-
-This project is intended for educational and university-assignment use. Add an explicit repository license before redistribution or commercial use.
+The owner reports Android acceptance. Retain device/runtime and SDK 58 acceptance records using the final readiness checklist; optional live-provider behavior is not verified. Mobile CI is configured but no remote run is claimed. Synchronization, backup/recovery, refunds, and authenticated mobile-ledger AI access remain separate future decisions.

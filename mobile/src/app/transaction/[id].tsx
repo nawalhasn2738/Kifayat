@@ -1,8 +1,9 @@
+import { userFacingError } from '@/lib/services/user-facing-error';
 import { useCallback } from 'react';
-import { useLocalSearchParams } from 'expo-router';
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Card, ErrorState, LoadingState, Screen, SectionTitle, palette, styles as ui } from '@/components/finance-ui';
-import { api, formatPKR } from '@/lib/api';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { Alert, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Card, ErrorState, LoadingState, PrimaryButton, Screen, SectionTitle, palette, styles as ui } from '@/components/finance-ui';
+import { api, formatTransactionPKR, transactionAmountTone } from '@/lib/api';
 import { useApi } from '@/hooks/use-api';
 
 export default function TransactionDetailsScreen() {
@@ -11,31 +12,39 @@ export default function TransactionDetailsScreen() {
   const id = Number.parseInt(rawId ?? '', 10);
   const load = useCallback(() => api.transaction(id), [id]);
   const { data, loading, error, reload } = useApi(load);
+  useFocusEffect(useCallback(() => { void reload(); }, [reload]));
 
   if (loading && !data) return <Screen><LoadingState /></Screen>;
   if (error && !data) return <Screen><View style={local.pad}><ErrorState message={error} retry={reload} /></View></Screen>;
   if (!data) return null;
 
-  const positive = data.type === 'income';
+  const tone = transactionAmountTone(data.type, data.amount);
+  const positive = tone === 'positive';
+  const remove = () => Alert.alert('Delete transaction?', 'This will also reverse its account balance change.', [
+    { text: 'Cancel', style: 'cancel' },
+    { text: 'Delete', style: 'destructive', onPress: () => void api.deleteTransaction(id).then(() => router.replace('/(tabs)/transactions')).catch((caught) => Alert.alert('Could not delete', userFacingError(caught, 'Local data could not be updated. Please try again.'))) },
+  ]);
   return (
     <Screen>
       <ScrollView contentContainerStyle={local.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={reload} tintColor={palette.primary} />}>
         <Card>
           <Text style={local.eyebrow}>TRANSACTION #{rawId}</Text>
-          <Text style={[local.amount, { color: positive ? palette.success : palette.text }]}>{positive ? '+' : '−'}{formatPKR(data.amount)}</Text>
+          <Text style={[local.amount, { color: positive ? palette.success : tone === 'negative' ? palette.danger : palette.text }]}>{formatTransactionPKR(data.amount)}</Text>
           <Text style={ui.muted}>Route parameter received from {params.from ?? 'a direct link'}.</Text>
         </Card>
 
         <Card>
           <SectionTitle>Details</SectionTitle>
           <Detail label="Merchant" value={data.merchant ?? 'Not provided'} />
-          <Detail label="Date" value={new Date(data.date).toLocaleDateString('en-PK', { dateStyle: 'long' })} />
+          <Detail label="Date" value={new Date(data.date).toLocaleDateString('en-PK', { dateStyle: 'long', timeZone: 'Asia/Karachi' })} />
           <Detail label="Type" value={data.type} />
           <Detail label="Category" value={(data.category?.name ?? 'Uncategorized').replaceAll('_', ' ')} />
           <Detail label="Account" value={`${data.account.name} · ${data.account.type}`} />
           <Detail label="Description" value={data.description ?? 'No description'} />
           <Detail label="Anomaly" value={data.isAnomaly ? 'Flagged for review' : 'No unusual activity detected'} />
         </Card>
+        <PrimaryButton label="Edit transaction" onPress={() => router.push({ pathname: '/add-transaction', params: { id: String(id) } })} />
+        <Text accessibilityRole="button" onPress={remove} style={local.delete}>Delete transaction</Text>
       </ScrollView>
     </Screen>
   );
@@ -53,4 +62,5 @@ const local = StyleSheet.create({
   detail: { borderTopColor: palette.border, borderTopWidth: 1, paddingTop: 11, gap: 3 },
   label: { color: palette.muted, fontSize: 11, fontWeight: '700', textTransform: 'uppercase' },
   value: { color: palette.text, fontSize: 15, textTransform: 'capitalize' },
+  delete: { color: palette.error, textAlign: 'center', padding: 14, fontWeight: '700' },
 });

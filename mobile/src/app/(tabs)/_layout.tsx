@@ -1,5 +1,6 @@
-import { Tabs, router } from 'expo-router';
+import { Tabs, router, type Href } from 'expo-router';
 import { Pressable, StyleSheet, Text } from 'react-native';
+import { borders, colors, controlHeights, radii, spacing, typography } from '@/theme/tokens';
 
 const icons: Record<string, string> = {
   index: '⌂',
@@ -7,24 +8,42 @@ const icons: Record<string, string> = {
   planning: '◎',
   chat: '✦',
 };
+const accountsRoute = '/accounts' as Href;
 
 export default function TabLayout() {
   return (
     <Tabs
       screenOptions={({ route }) => ({
-        headerStyle: { backgroundColor: '#0b0d12' },
-        headerTintColor: '#f4f4f5',
+        headerStyle: { backgroundColor: colors.surface },
+        headerTintColor: colors.textPrimary,
         headerTitleStyle: { fontWeight: '700' },
-        sceneStyle: { backgroundColor: '#0b0d12' },
-        tabBarStyle: { backgroundColor: '#131722', borderTopColor: '#252b3d', height: 66 },
-        tabBarActiveTintColor: '#8b72ff',
-        tabBarInactiveTintColor: '#8b90a3',
-        tabBarLabelStyle: { fontSize: 11, paddingBottom: 5 },
+        headerShadowVisible: false,
+        sceneStyle: { backgroundColor: colors.canvas },
+        tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border, borderTopWidth: borders.hairline, height: 66 },
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.textDisabled,
+        tabBarLabelStyle: { ...typography.caption, paddingBottom: spacing.xs },
         tabBarIcon: ({ color }) => (
           <Text style={{ color, fontSize: 20 }}>{icons[route.name] ?? '•'}</Text>
         ),
       })}>
-      <Tabs.Screen name="index" options={{ title: 'Overview', headerTitle: 'Kifayat' }} />
+      <Tabs.Screen
+        name={'index'}
+        options={{
+          title: 'Overview',
+          headerTitle: 'Kifayat',
+          headerLeft: () => (
+            <Pressable accessibilityRole="button" accessibilityLabel="Financial settings" onPress={() => router.push('/profile-settings' as Href)} style={({ pressed }) => [styles.headerButton, { marginLeft: 14 }, pressed && styles.pressed]}>
+              <Text style={styles.headerButtonText}>Settings</Text>
+            </Pressable>
+          ),
+          headerRight: () => (
+            <Pressable accessibilityRole={'button'} accessibilityLabel={'Manage accounts'} onPress={() => router.push(accountsRoute)} style={({ pressed }) => [styles.headerButton, pressed && styles.pressed]}>
+              <Text style={styles.headerButtonText}>Accounts</Text>
+            </Pressable>
+          ),
+        }}
+      />
       <Tabs.Screen
         name="transactions"
         options={{
@@ -47,7 +66,7 @@ export default function TabLayout() {
 }
 
 const styles = StyleSheet.create({
-  headerButton: { marginRight: 14, minHeight: 36, justifyContent: 'center', paddingHorizontal: 12, borderRadius: 10, backgroundColor: '#8b72ff' },
-  pressed: { opacity: 0.65 },
-  headerButtonText: { color: '#fff', fontWeight: '800' },
+  headerButton: { marginRight: 14, minHeight: controlHeights.minimum, justifyContent: 'center', paddingHorizontal: spacing.md, borderRadius: radii.control, backgroundColor: colors.primary },
+  pressed: { backgroundColor: colors.primaryPressed },
+  headerButtonText: { color: colors.surface, ...typography.button },
 });

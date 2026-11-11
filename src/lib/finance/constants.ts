@@ -1,8 +1,7 @@
 // Finance rule constants. Tweak here, not in business logic.
 
 export const EMERGENCY_FUND_MONTHS = 3
-export const SAFE_INSTALLMENT_RATIO = 0.30 // EMI <= 30% of disposable
-export const HEALTHY_SAVINGS_RATE = 0.20
+export { SAFE_INSTALLMENT_RATIO, HEALTHY_SAVINGS_RATE } from "../../../mobile/src/lib/finance/planning-rules"
 
 // Categories the engine treats as discretionary / impulse-prone.
 export const HIGH_RISK_CATEGORIES = new Set([

@@ -1,0 +1,277 @@
+import { reportingMonthKey, reportingMonthRange, reportingMonthStart } from '@/lib/finance/reporting-calendar';
+import type { Affordability, Forecast, Risk, Summary, Transaction } from '@/lib/types';
+import { validatePlanningHorizon } from '@/lib/validation/affordability';
+import { MAX_PKR_AMOUNT } from '@/lib/validation/transaction';
+
+type SummaryAccount = { name: string; type: string; balance: number };
+
+export type SummaryDependencies = {
+  listAccounts: () => Promise<SummaryAccount[]>;
+  listAllTransactions: () => Promise<Transaction[]>;
+  now: () => Date;
+};
+
+const unsafeMoneyError = 'Financial reporting requires JavaScript safe integer monetary values.';
+const affordabilityMoneyError = 'Affordability requires safe whole-PKR monetary values.';
+
+function checkedMoneyAdd(left: number, right: number) {
+  if (!Number.isSafeInteger(left) || !Number.isSafeInteger(right)) throw new Error(unsafeMoneyError);
+  const result = left + right;
+  if (!Number.isSafeInteger(result)) throw new Error(unsafeMoneyError);
+  return result;
+}
+
+function checkedMoneySubtract(left: number, right: number) {
+  if (!Number.isSafeInteger(left) || !Number.isSafeInteger(right)) throw new Error(unsafeMoneyError);
+  const result = left - right;
+  if (!Number.isSafeInteger(result)) throw new Error(unsafeMoneyError);
+  return result;
+}
+
+function requireSafeAffordabilityMoney(value: number) {
+  if (!Number.isSafeInteger(value)) throw new Error(affordabilityMoneyError);
+  return value;
+}
+
+function checkedAffordabilityAdd(left: number, right: number) {
+  requireSafeAffordabilityMoney(left); requireSafeAffordabilityMoney(right);
+  return requireSafeAffordabilityMoney(left + right);
+}
+
+function checkedAffordabilitySubtract(left: number, right: number) {
+  requireSafeAffordabilityMoney(left); requireSafeAffordabilityMoney(right);
+  return requireSafeAffordabilityMoney(left - right);
+}
+
+function checkedAffordabilityMultiply(left: number, right: number) {
+  requireSafeAffordabilityMoney(left); requireSafeAffordabilityMoney(right);
+  return requireSafeAffordabilityMoney(left * right);
+}
+
+function absoluteMoney(value: number) {
+  if (!Number.isSafeInteger(value)) throw new Error(unsafeMoneyError);
+  const result = Math.abs(value);
+  if (!Number.isSafeInteger(result)) throw new Error(unsafeMoneyError);
+  return result;
+}
+
+export function meanMoney(values: number[]) {
+  const total = values.reduce(checkedMoneyAdd, 0);
+  return values.length ? total / values.length : 0;
+}
+
+export function sumAbsoluteMoney(transactions: Transaction[]) {
+  return transactions.reduce((total, transaction) => checkedMoneyAdd(total, absoluteMoney(transaction.amount)), 0);
+}
+export function transactionsAtOrBefore(transactions: Transaction[], asOf: Date) {
+  const cutoff = asOf.toISOString();
+  return transactions.filter((transaction) => transaction.date <= cutoff);
+}
+
+export function monthly(transactions: Transaction[]) {
+  const buckets = new Map<string, { month: string; income: number; expense: number; savings: number }>();
+  for (const tx of transactions) {
+    const month = reportingMonthKey(tx.date);
+    const bucket = buckets.get(month) ?? { month, income: 0, expense: 0, savings: 0 };
+    if (tx.type === 'income') bucket.income = checkedMoneyAdd(bucket.income, tx.amount);
+    if (tx.type === 'expense') bucket.expense = checkedMoneyAdd(bucket.expense, absoluteMoney(tx.amount));
+    bucket.savings = checkedMoneySubtract(bucket.income, bucket.expense);
+    buckets.set(month, bucket);
+  }
+  return [...buckets.values()].sort((a, b) => a.month.localeCompare(b.month));
+}
+
+function previousReportingMonthKey(month: string) {
+  return reportingMonthKey(new Date(reportingMonthStart(month).getTime() - 1));
+}
+
+export function createSummaryService(dependencies: SummaryDependencies) {
+  return async function getSummary(asOf = dependencies.now()): Promise<Summary> {
+    const [accountRows, allTransactions] = await Promise.all([dependencies.listAccounts(), dependencies.listAllTransactions()]);
+    const txs = transactionsAtOrBefore(allTransactions, asOf);
+    const now = asOf;
+    const totals = monthly(txs);
+    const currentMonth = reportingMonthKey(now);
+    const currentMonthRange = reportingMonthRange(currentMonth);
+    const previousMonth = previousReportingMonthKey(currentMonth);
+    const current = totals.find((item) => item.month === currentMonth);
+    const previous = totals.find((item) => item.month === previousMonth);
+    const recent = totals.filter((item) => item.month <= currentMonth).slice(-3);
+    const categoryMap = new Map<string, { category: string; total: number; count: number }>();
+    for (const tx of txs.filter((item) => item.type === 'expense' && reportingMonthKey(item.date) === currentMonth)) {
+      const category = tx.category?.name ?? 'uncategorized';
+      const row = categoryMap.get(category) ?? { category, total: 0, count: 0 };
+      row.total = checkedMoneyAdd(row.total, absoluteMoney(tx.amount)); row.count += 1; categoryMap.set(category, row);
+    }
+    const elapsedDays = Math.floor((now.getTime() - currentMonthRange.start.getTime()) / 86_400_000) + 1;
+    const daysInMonth = Math.round((currentMonthRange.endExclusive.getTime() - currentMonthRange.start.getTime()) / 86_400_000);
+    const projected = Math.round((current?.expense ?? 0) / Math.max(1, elapsedDays) * daysInMonth);
+    const incomeAvg = Math.round(meanMoney(recent.map((item) => item.income)));
+    const spendingAvg = Math.round(meanMoney(recent.map((item) => item.expense)));
+    const savingsAvg = Math.round(meanMoney(recent.map((item) => item.savings)));
+    return {
+      asOf: now.toISOString(), balances: accountRows.map(({ name, type, balance }) => ({ name, type, balance })),
+      totalBalance: accountRows.reduce((sum, account) => checkedMoneyAdd(sum, account.balance), 0),
+      income: { thisMonth: current?.income ?? 0, lastMonth: previous?.income ?? 0, threeMonthAvg: incomeAvg },
+      spend: { thisMonthMTD: current?.expense ?? 0, thisMonthProjected: projected, lastMonth: previous?.expense ?? 0, threeMonthAvg: spendingAvg },
+      savings: { thisMonth: current?.savings ?? 0, threeMonthAvg: savingsAvg, rate: incomeAvg ? savingsAvg / incomeAvg : 0 },
+      topCategoriesMTD: [...categoryMap.values()].sort((a, b) => b.total - a.total).slice(0, 3), monthlyTotals: totals,
+    };
+  };
+}
+
+type AffordabilitySummary = {
+  totalBalance: number;
+  spend: { threeMonthAvg: number };
+  savings: { threeMonthAvg: number };
+};
+
+export function calculateEmergencyBuffer(averageMonthlySpend: number, emergencyFundTarget: number) {
+  requireSafeAffordabilityMoney(emergencyFundTarget);
+  if (emergencyFundTarget < 0) throw new Error(affordabilityMoneyError);
+  return Math.max(emergencyFundTarget, checkedAffordabilityMultiply(averageMonthlySpend, 3));
+}
+
+export function riskBandForScore(score: number): Risk['band'] {
+  return score <= 30 ? 'low' : score <= 60 ? 'moderate' : 'high';
+}
+
+export function calculateAffordability(
+  input: { itemName: string; price: number; monthsAhead: number },
+  summary: AffordabilitySummary,
+  profile: { emergencyFundTarget: number },
+): Affordability {
+  if (!Number.isSafeInteger(input.price) || input.price <= 0 || input.price > MAX_PKR_AMOUNT) {
+    throw new Error('Enter a valid positive whole amount within the supported range.');
+  }
+  validatePlanningHorizon(input.monthsAhead);
+  requireSafeAffordabilityMoney(profile.emergencyFundTarget);
+  if (profile.emergencyFundTarget < 0) throw new Error(affordabilityMoneyError);
+  requireSafeAffordabilityMoney(summary.totalBalance);
+  requireSafeAffordabilityMoney(summary.spend.threeMonthAvg);
+  requireSafeAffordabilityMoney(summary.savings.threeMonthAvg);
+
+  const buffer = calculateEmergencyBuffer(summary.spend.threeMonthAvg, profile.emergencyFundTarget);
+  const monthlySavings = Math.max(0, summary.savings.threeMonthAvg);
+  const projectedSavings = checkedAffordabilityMultiply(input.monthsAhead, monthlySavings);
+  const projected = checkedAffordabilityAdd(summary.totalBalance, projectedSavings);
+  const available = checkedAffordabilitySubtract(projected, buffer);
+  const remainingAfterPurchase = checkedAffordabilitySubtract(projected, input.price);
+  const priceGap = checkedAffordabilitySubtract(input.price, available);
+  const shortfall = Math.max(0, priceGap);
+
+  return {
+    canAfford: available >= input.price,
+    available,
+    buffer,
+    remainingAfterPurchase,
+    shortfall,
+    monthsNeededAtCurrentRate: monthlySavings ? Math.ceil(shortfall / monthlySavings) : -1,
+    reason: available >= input.price
+      ? 'The purchase preserves your emergency buffer.'
+      : 'The purchase would reduce funds below your emergency buffer.',
+  };
+}
+const mean = (values: number[]) => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+const stdev = (values: number[]) => {
+  const average = meanMoney(values);
+  return values.length < 2 ? 0 : Math.sqrt(mean(values.map((value) => (value - average) ** 2)));
+};
+
+function forecastRange(values: number[]) {
+  const blend = Math.round(meanMoney(values));
+  const variation = Math.round(stdev(values));
+  return { blend, low: Math.max(0, blend - variation), high: blend + variation };
+}
+
+export function calculateForecast(
+  transactions: Transaction[],
+  asOf: Date,
+  reportingMonths?: string[],
+): Forecast {
+  const eligibleTransactions = transactionsAtOrBefore(transactions, asOf);
+  const monthlyTotals = monthly(eligibleTransactions);
+  const months = reportingMonths ?? monthlyTotals.slice(-3).map((item) => item.month);
+  const totals = months.map((month) => monthlyTotals.find((item) => item.month === month)?.expense ?? 0);
+  const monthSet = new Set(months);
+  const uncategorizedKey = 'missing-category';
+  const categoryMonthlyTotals = new Map<string, { label: string; monthlyTotals: Map<string, number> }>();
+  for (const transaction of eligibleTransactions) {
+    if (transaction.type !== 'expense') continue;
+    const month = reportingMonthKey(transaction.date);
+    if (!monthSet.has(month)) continue;
+    const categoryKey = transaction.category ? `category:${transaction.category.id}` : uncategorizedKey;
+    const category = categoryMonthlyTotals.get(categoryKey) ?? {
+      label: transaction.category?.name ?? 'uncategorized',
+      monthlyTotals: new Map<string, number>(),
+    };
+    category.monthlyTotals.set(
+      month,
+      checkedMoneyAdd(category.monthlyTotals.get(month) ?? 0, absoluteMoney(transaction.amount)),
+    );
+    categoryMonthlyTotals.set(categoryKey, category);
+  }
+  const hasMissingCategory = categoryMonthlyTotals.has(uncategorizedKey);
+  const byCategory = Object.fromEntries(
+    [...categoryMonthlyTotals.entries()]
+      .map(([key, category]) => ({
+        key,
+        label: hasMissingCategory && key !== uncategorizedKey && category.label === 'uncategorized'
+          ? `uncategorized [category ${key.slice('category:'.length)}]`
+          : category.label,
+        monthlyTotals: category.monthlyTotals,
+      }))
+      .sort((left, right) => left.label.localeCompare(right.label))
+      .map(({ label, monthlyTotals: categoryMonths }) => [
+        label,
+        forecastRange(months.map((month) => categoryMonths.get(month) ?? 0)),
+      ]),
+  );
+  return {
+    total: forecastRange(totals),
+    byCategory,
+    method: '3-month mean ± population standard deviation using complete Karachi months',
+    asOf: asOf.toISOString(),
+  };
+}
+export function calculateRisk(
+  summary: Summary,
+  profile: { monthlyIncome: number },
+  categories: { id: number; isHighRisk: boolean }[],
+  transactions: Transaction[],
+  asOf: Date,
+): Risk {
+  const txs = transactionsAtOrBefore(transactions, asOf);
+  const currentMonth = reportingMonthKey(asOf);
+  const previousMonth = previousReportingMonthKey(currentMonth);
+  const oldestMonth = previousReportingMonthKey(previousMonth);
+  const riskMonths = [oldestMonth, previousMonth, currentMonth];
+  const recentMonths = riskMonths.map((month) => summary.monthlyTotals.find((item) => item.month === month)?.expense ?? 0);
+  const recentStart = reportingMonthStart(oldestMonth).toISOString();
+  const recent = txs.filter((tx) => tx.type === 'expense' && tx.date >= recentStart);
+  const highRiskIds = new Set(categories.filter((item) => item.isHighRisk).map((item) => item.id));
+  const total = sumAbsoluteMoney(recent);
+  const risky = sumAbsoluteMoney(recent.filter((tx) => tx.category && highRiskIds.has(tx.category.id)));
+  const anomalies = sumAbsoluteMoney(recent.filter((tx) => tx.isAnomaly));
+  const spendRatio = Math.min(1, summary.spend.thisMonthMTD / Math.max(1, profile.monthlyIncome));
+  const volatility = Math.min(1, stdev(recentMonths) / Math.max(1, meanMoney(recentMonths)));
+  const savingsInverse = Math.min(1, 1 - Math.max(0, summary.savings.rate) / 0.2);
+  const highRiskShare = total ? risky / total : 0;
+  const anomalyShare = total ? anomalies / total : 0;
+  const score = Math.round(100 * (0.35 * spendRatio + 0.2 * volatility + 0.2 * savingsInverse + 0.15 * highRiskShare + 0.1 * anomalyShare));
+  const reasons = [] as string[];
+  if (spendRatio > .85) reasons.push('Monthly spending is close to income.');
+  if (volatility > .25) reasons.push('Spending has varied significantly recently.');
+  if (savingsInverse > .5) reasons.push('Savings are below the 20% target.');
+  if (highRiskShare > .25) reasons.push('Categories marked high-risk account for more than a quarter of recorded spending.');
+  if (anomalyShare > .05) reasons.push('Flagged transactions account for more than 5% of recorded spending.');
+  if (!reasons.length) reasons.push('Current indicators are within the existing rule thresholds.');
+  return { score, band: riskBandForScore(score), reasons, factors: [
+    { label: 'Spending relative to configured income', value: spendRatio, weight: .35 },
+    { label: 'Monthly spending variation', value: volatility, weight: .20 },
+    { label: 'Savings below the 20% rule', value: savingsInverse, weight: .20 },
+    { label: 'Share of spending in marked high-risk categories', value: highRiskShare, weight: .15 },
+    { label: 'Share of spending flagged as unusual', value: anomalyShare, weight: .10 },
+  ] };
+
+}

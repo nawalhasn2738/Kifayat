@@ -14,6 +14,7 @@ export type Summary = {
 
 export type Transaction = {
   id: number;
+  clientId: string;
   date: string;
   amount: number;
   type: 'income' | 'expense' | 'transfer';
@@ -32,12 +33,57 @@ export type Forecast = {
   method: string;
   asOf: string;
 };
-export type Risk = { score: number; band: 'low' | 'moderate' | 'high'; reasons: string[] };
+export type ForecastReadinessReason =
+  | 'history_start_unconfirmed'
+  | 'insufficient_complete_months'
+  | 'invalid_history_start';
+export type ForecastResult =
+  | {
+    status: 'ready';
+    forecast: Forecast;
+    requiredCompleteMonths: 3;
+    availableCompleteMonths: 3;
+    qualifyingMonths: string[];
+    guidance: string;
+  }
+  | {
+    status: 'insufficient_history';
+    forecast: null;
+    reason: ForecastReadinessReason;
+    requiredCompleteMonths: 3;
+    availableCompleteMonths: number;
+    qualifyingMonths: string[];
+    guidance: string;
+  };
+export type Risk = { score: number; band: 'low' | 'moderate' | 'high'; reasons: string[]; factors?: { label: string; value: number; weight: number }[] };
 export type Affordability = {
   canAfford: boolean;
   available: number;
   buffer: number;
+  remainingAfterPurchase: number;
   shortfall: number;
   monthsNeededAtCurrentRate: number;
   reason: string;
 };
+export type AffordabilityAssessment =
+  | {
+    status: 'ready';
+    result: Affordability;
+    accounts: { id: number; name: string; type: 'checking' | 'savings'; balance: number }[];
+    eligibleBalance: number;
+    averageMonthlySpend: number;
+    averageMonthlySavings: number;
+    qualifyingMonths: string[];
+  }
+  | {
+    status: 'insufficient_history';
+    result: null;
+    guidance: string;
+    availableCompleteMonths: number;
+    requiredCompleteMonths: 3;
+  }
+  | {
+    status: 'insufficient_information';
+    result: null;
+    guidance: string;
+  };

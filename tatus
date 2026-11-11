@@ -1,0 +1,11 @@
+warning: in the working copy of 'mobile/package-lock.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mobile/package.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mobile/src/app/add-transaction.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mobile/src/lib/api.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mobile/src/lib/db/seed.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mobile/src/lib/repositories/catalog.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mobile/src/lib/repositories/chat.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mobile/src/lib/repositories/transactions.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mobile/src/lib/services/finance.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mobile/src/lib/validation/transaction.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mobile/tests/transaction-validation.test.ts', LF will be replaced by CRLF the next time Git touches it
