@@ -7,6 +7,7 @@ import * as schema from '../src/lib/db/schema.ts';
 import { createCatalogRepository } from '../src/lib/repositories/catalog-core.ts';
 import { createTransactionRepository } from '../src/lib/repositories/transactions-core.ts';
 import { calculateAffordability, createSummaryService } from '../src/lib/services/finance-core.ts';
+import { createAffordabilityService } from '../src/lib/services/affordability-core.ts';
 import { MAX_PKR_AMOUNT, parsePkrAmount } from '../src/lib/validation/transaction.ts';
 import { migrateWithExpoPath } from './helpers/migration-chain.mjs';
 
@@ -79,6 +80,29 @@ test('catalog integration: scopes and orders accounts, orders categories, and lo
 
     const missing = createCatalogRepository(database, { userId: 303 });
     await assert.rejects(missing.getProfile(), /Local profile is unavailable/);
+  });
+});
+
+test('catalog integration: active account selection excludes archived and cross-user accounts', async () => {
+  await withFixture(async ({ database }) => {
+    await database.insert(schema.accounts).values([
+      { id: 1, userId: localUserId, name: 'Wallet', type: 'cash', balance: 0 },
+      { id: 2, userId: localUserId, name: 'Archived Bank', type: 'checking', balance: 0, archivedAt: '2026-10-01T00:00:00.000Z' },
+      { id: 3, userId: localUserId, name: 'Active Bank', type: 'checking', balance: 0 },
+      { id: 4, userId: otherUserId, name: 'Other Active', type: 'savings', balance: 0 },
+    ]);
+
+    const repository = createCatalogRepository(database, { userId: localUserId });
+    assert.deepEqual((await repository.listAccounts()).map((row) => row.name), [
+      'Active Bank', 'Archived Bank', 'Wallet',
+    ]);
+    assert.deepEqual((await repository.listActiveAccounts()).map((row) => row.name), [
+      'Active Bank', 'Wallet',
+    ]);
+
+    const emptyRepository = createCatalogRepository(database, { userId: 303 });
+    assert.deepEqual(await emptyRepository.listAccounts(), []);
+    assert.deepEqual(await emptyRepository.listActiveAccounts(), []);
   });
 });
 
@@ -1328,6 +1352,62 @@ test('transaction integration: invalid persisted rows fail reporting and mutatio
       repository.updateTransaction(720, transactionInput({ amount: 200, type: 'income' })),
       /Invalid persisted transaction 720: amount/i,
     );
+    assert.deepEqual(await database.select().from(schema.accounts).orderBy(asc(schema.accounts.id)), accountsBefore);
+    assert.deepEqual(await database.select().from(schema.transactions).orderBy(asc(schema.transactions.id)), transactionsBefore);
+  });
+});
+
+test('affordability integration: owned active liquid accounts are assessed without database writes', async () => {
+  await withFixture(async ({ database }) => {
+    await database.insert(schema.userProfiles).values({
+      userId: localUserId,
+      monthlyIncome: 100_000,
+      emergencyFundTarget: 60_000,
+      financialHistoryStartedAt: '2026-04-01T00:00:00.000Z',
+    });
+    await database.insert(schema.accounts).values([
+      { id: 1, userId: localUserId, name: 'Bank', type: 'checking', balance: 90_000 },
+      { id: 2, userId: localUserId, name: 'Savings', type: 'savings', balance: 30_000 },
+      { id: 3, userId: localUserId, name: 'Archived', type: 'savings', balance: 900_000, archivedAt: '2026-07-01T00:00:00.000Z' },
+      { id: 4, userId: localUserId, name: 'Cash', type: 'cash', balance: 500_000 },
+      { id: 5, userId: otherUserId, name: 'Other', type: 'checking', balance: 800_000 },
+    ]);
+    await database.insert(schema.transactions).values([
+      { clientId: 'afford-may', userId: localUserId, accountId: 1, date: '2026-05-10T00:00:00.000Z', amount: -20_000, type: 'expense' },
+      { clientId: 'afford-june', userId: localUserId, accountId: 1, date: '2026-06-10T00:00:00.000Z', amount: -20_000, type: 'expense' },
+      { clientId: 'afford-july', userId: localUserId, accountId: 1, date: '2026-07-10T00:00:00.000Z', amount: -20_000, type: 'expense' },
+    ]);
+    const catalog = createCatalogRepository(database, { userId: localUserId });
+    const transactions = createTransactionRepository(database, {
+      userId: localUserId,
+      now: () => new Date('2026-08-15T00:00:00.000Z'),
+    });
+    const getSummary = createSummaryService({
+      listAccounts: catalog.listAccounts,
+      listAllTransactions: transactions.listAllTransactions,
+      now: () => new Date('2026-08-15T00:00:00.000Z'),
+    });
+    const assess = createAffordabilityService({
+      getSummary,
+      getProfile: catalog.getProfile,
+      listActiveAccounts: catalog.listActiveAccounts,
+      getForecast: async () => ({
+        status: 'ready',
+        forecast: { total: { blend: 0, low: 0, high: 0 }, byCategory: {}, method: 'test', asOf: '2026-08-15T00:00:00.000Z' },
+        requiredCompleteMonths: 3,
+        availableCompleteMonths: 3,
+        qualifyingMonths: ['2026-05', '2026-06', '2026-07'],
+        guidance: 'Three complete reporting months are available.',
+      }),
+    });
+    const accountsBefore = await database.select().from(schema.accounts).orderBy(asc(schema.accounts.id));
+    const transactionsBefore = await database.select().from(schema.transactions).orderBy(asc(schema.transactions.id));
+
+    const assessment = await assess({ itemName: 'Laptop', price: 50_000, monthsAhead: 1 });
+    assert.equal(assessment.status, 'ready');
+    assert.deepEqual(assessment.accounts.map((account) => account.id), [1, 2]);
+    assert.equal(assessment.eligibleBalance, 120_000);
+    assert.equal(assessment.result.canAfford, true);
     assert.deepEqual(await database.select().from(schema.accounts).orderBy(asc(schema.accounts.id)), accountsBefore);
     assert.deepEqual(await database.select().from(schema.transactions).orderBy(asc(schema.transactions.id)), transactionsBefore);
   });

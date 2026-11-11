@@ -103,6 +103,34 @@ test('migration chain: fresh database applies every bundled migration through th
     assert.equal(tableExists(sqlite, 'transactions'), true);
     assert.equal(tableExists(sqlite, '__drizzle_migrations'), true);
     assert.deepEqual(migrationJournal(sqlite), config.journal.entries.map((entry) => entry.when));
+    const archivedAt = tableColumns(sqlite, 'accounts').find((column) => column.name === 'archived_at');
+    assert.deepEqual(archivedAt, { name: 'archived_at', notNull: 0, defaultValue: null });
+  });
+
+  await withDisposableDatabase(async (sqlite) => {
+    const current = loadBundledMigrationConfig();
+    const through0004 = throughMigration(current, 5);
+    await migrateWithExpoPath(sqlite, through0004);
+    sqlite.prepare('INSERT INTO users (id, email, name) VALUES (1, ?, ?)')
+      .run('account-archive-upgrade@example.test', 'Archive Upgrade');
+    sqlite.prepare(`
+      INSERT INTO accounts (id, user_id, name, type, balance, opening_balance)
+      VALUES (1, 1, ?, ?, 750, 125)
+    `).run('Cash', 'cash');
+    sqlite.prepare(`
+      INSERT INTO transactions (client_id, user_id, account_id, date, amount, type)
+      VALUES (?, 1, 1, ?, 625, ?)
+    `).run('account-archive-upgrade-existing', '2026-01-01T00:00:00.000Z', 'income');
+    const accountBefore = sqlite.prepare('SELECT * FROM accounts WHERE id = 1').get();
+    const transactionBefore = sqlite.prepare('SELECT * FROM transactions WHERE account_id = 1').all();
+
+    await migrateWithExpoPath(sqlite, current);
+
+    const { archived_at: archivedAt, ...accountAfter } = sqlite.prepare('SELECT * FROM accounts WHERE id = 1').get();
+    assert.deepEqual(accountAfter, accountBefore);
+    assert.equal(archivedAt, null);
+    assert.deepEqual(sqlite.prepare('SELECT * FROM transactions WHERE account_id = 1').all(), transactionBefore);
+    assert.deepEqual(migrationJournal(sqlite), current.journal.entries.map((entry) => entry.when));
   });
 });
 
@@ -163,8 +191,9 @@ test('category applicability: existing 0001 catalogue upgrades without changing 
     assert.deepEqual(applicabilityRows(sqlite), approvedApplicability);
     assert.deepEqual(sqlite.prepare('SELECT * FROM user_profiles').all(), before.profile);
     const upgradedAccounts = sqlite.prepare('SELECT * FROM accounts').all();
-    assert.deepEqual(upgradedAccounts.map(({ opening_balance, ...account }) => account), before.accounts);
+    assert.deepEqual(upgradedAccounts.map(({ opening_balance, archived_at, ...account }) => account), before.accounts);
     assert.ok(upgradedAccounts.every((account) => account.opening_balance === null));
+    assert.ok(upgradedAccounts.every((account) => account.archived_at === null));
     assert.deepEqual(sqlite.prepare('SELECT * FROM transactions').all(), before.transactions);
     assert.deepEqual(sqlite.prepare('SELECT * FROM categories ORDER BY id').all(), before.categories);
     assert.deepEqual(
@@ -479,9 +508,14 @@ test('migration chain: genuine 0000 database upgrades without backfill or data c
     const { financial_history_started_at: historyStart, ...profileAfter } = sqlite.prepare('SELECT * FROM user_profiles').get();
     assert.deepEqual(profileAfter, profileBefore);
     assert.equal(historyStart, null);
-    const { opening_balance: openingBalance, ...accountAfter } = sqlite.prepare('SELECT * FROM accounts').get();
+    const {
+      opening_balance: openingBalance,
+      archived_at: archivedAt,
+      ...accountAfter
+    } = sqlite.prepare('SELECT * FROM accounts').get();
     assert.deepEqual(accountAfter, accountBefore);
     assert.equal(openingBalance, null);
+    assert.equal(archivedAt, null);
     assert.deepEqual(sqlite.prepare('SELECT * FROM transactions').get(), transactionBefore);
     assert.deepEqual(sqlite.prepare('SELECT * FROM categories ORDER BY id').all(), categoriesBefore);
     assert.deepEqual(applicabilityRows(sqlite), approvedApplicability);
@@ -526,6 +560,7 @@ test('migration chain: rerun preserves schema, fixtures, and migration journal',
     const schemaBefore = schemaState(sqlite);
     const journalBefore = migrationJournal(sqlite);
     const profileBefore = sqlite.prepare('SELECT * FROM user_profiles WHERE user_id = 1').get();
+    const accountBefore = sqlite.prepare('SELECT * FROM accounts WHERE id = 1').get();
     const transactionBefore = sqlite.prepare(
       'SELECT * FROM transactions WHERE client_id = ?',
     ).get('rerun-existing');
@@ -541,6 +576,10 @@ test('migration chain: rerun preserves schema, fixtures, and migration journal',
     assert.deepEqual(
       sqlite.prepare('SELECT * FROM user_profiles WHERE user_id = 1').get(),
       profileBefore,
+    );
+    assert.deepEqual(
+      sqlite.prepare('SELECT * FROM accounts WHERE id = 1').get(),
+      accountBefore,
     );
     assert.deepEqual(
       sqlite.prepare('SELECT * FROM transactions WHERE client_id = ?').get('rerun-existing'),

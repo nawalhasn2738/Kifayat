@@ -147,6 +147,7 @@ export function calculateAffordability(
   const projectedSavings = checkedAffordabilityMultiply(input.monthsAhead, monthlySavings);
   const projected = checkedAffordabilityAdd(summary.totalBalance, projectedSavings);
   const available = checkedAffordabilitySubtract(projected, buffer);
+  const remainingAfterPurchase = checkedAffordabilitySubtract(projected, input.price);
   const priceGap = checkedAffordabilitySubtract(input.price, available);
   const shortfall = Math.max(0, priceGap);
 
@@ -154,6 +155,7 @@ export function calculateAffordability(
     canAfford: available >= input.price,
     available,
     buffer,
+    remainingAfterPurchase,
     shortfall,
     monthsNeededAtCurrentRate: monthlySavings ? Math.ceil(shortfall / monthlySavings) : -1,
     reason: available >= input.price

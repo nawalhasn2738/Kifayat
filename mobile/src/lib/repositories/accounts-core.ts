@@ -1,4 +1,4 @@
-import { and, eq, ne, or, sql } from 'drizzle-orm';
+import { and, eq, isNull, ne, or, sql } from 'drizzle-orm';
 import { accounts, openingBalanceAudit, transactions, transfers } from '@/lib/db/schema';
 import { LOCAL_USER_ID } from '@/lib/db/seed';
 import type { AppDatabase } from '@/lib/db/types';
@@ -112,9 +112,9 @@ export function createAccountRepository<TRunResult>(
         requireAvailableName(tx, name, id);
         const changed = tx.update(accounts).set({ name }).where(and(
           eq(accounts.id, id), eq(accounts.userId, dependencies.userId),
-          eq(accounts.name, expectedCurrentName), eq(accounts.archivedAt, null),
-        )).run();
-        if (changed.changes !== 1) throw new AccountLifecycleError('stale_account', 'Account details changed; refresh and try again.');
+          eq(accounts.name, expectedCurrentName), isNull(accounts.archivedAt),
+        )).returning({ id: accounts.id }).get();
+        if (!changed) throw new AccountLifecycleError('stale_account', 'Account details changed; refresh and try again.');
       });
     } catch (error) {
       if (error instanceof AccountLifecycleError) throw error;
@@ -128,13 +128,13 @@ export function createAccountRepository<TRunResult>(
       const account = owned(tx, id);
       if (account.archivedAt !== null) throw new AccountLifecycleError('stale_account', 'Account is already archived.');
       const [{ count }] = tx.select({ count: sql<number>`count(*)` }).from(accounts).where(and(
-        eq(accounts.userId, dependencies.userId), eq(accounts.archivedAt, null),
+        eq(accounts.userId, dependencies.userId), isNull(accounts.archivedAt),
       )).all();
       if (count <= 1) throw new AccountLifecycleError('last_active_account', 'At least one active account is required.');
       const changed = tx.update(accounts).set({ archivedAt: dependencies.now().toISOString() }).where(and(
-        eq(accounts.id, id), eq(accounts.userId, dependencies.userId), eq(accounts.archivedAt, null),
-      )).run();
-      if (changed.changes !== 1) throw new AccountLifecycleError('stale_account', 'Account status changed; refresh and try again.');
+        eq(accounts.id, id), eq(accounts.userId, dependencies.userId), isNull(accounts.archivedAt),
+      )).returning({ id: accounts.id }).get();
+      if (!changed) throw new AccountLifecycleError('stale_account', 'Account status changed; refresh and try again.');
     });
   }
 
@@ -147,8 +147,8 @@ export function createAccountRepository<TRunResult>(
       const changed = tx.update(accounts).set({ archivedAt: null }).where(and(
         eq(accounts.id, id), eq(accounts.userId, dependencies.userId),
         eq(accounts.archivedAt, expectedArchivedAt),
-      )).run();
-      if (changed.changes !== 1) throw new AccountLifecycleError('stale_account', 'Account status changed; refresh and try again.');
+      )).returning({ id: accounts.id }).get();
+      if (!changed) throw new AccountLifecycleError('stale_account', 'Account status changed; refresh and try again.');
     });
   }
 
@@ -156,7 +156,7 @@ export function createAccountRepository<TRunResult>(
     database.transaction((tx) => {
       const account = owned(tx, id);
       const [{ count: activeCount }] = tx.select({ count: sql<number>`count(*)` }).from(accounts).where(and(
-        eq(accounts.userId, dependencies.userId), eq(accounts.archivedAt, null),
+        eq(accounts.userId, dependencies.userId), isNull(accounts.archivedAt),
       )).all();
       if (account.archivedAt === null && activeCount <= 1) {
         throw new AccountLifecycleError('last_active_account', 'At least one active account is required.');
@@ -173,9 +173,9 @@ export function createAccountRepository<TRunResult>(
       }
       const deleted = tx.delete(accounts).where(and(
         eq(accounts.id, id), eq(accounts.userId, dependencies.userId),
-        eq(accounts.balance, 0), eq(accounts.openingBalance, null),
-      )).run();
-      if (deleted.changes !== 1) throw new AccountLifecycleError('stale_account', 'Account details changed; refresh and try again.');
+        eq(accounts.balance, 0), isNull(accounts.openingBalance),
+      )).returning({ id: accounts.id }).get();
+      if (!deleted) throw new AccountLifecycleError('stale_account', 'Account details changed; refresh and try again.');
     });
   }
 

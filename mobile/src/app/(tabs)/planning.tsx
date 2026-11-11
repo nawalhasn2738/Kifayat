@@ -3,7 +3,7 @@ import { RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'r
 import { Card, ErrorState, LoadingState, PrimaryButton, Screen, SectionTitle, palette, styles as ui } from '@/components/finance-ui';
 import { api, formatPKR } from '@/lib/api';
 import { FORECAST_CATEGORY_LABEL, FORECAST_TOTAL_LABEL, forecastBasisLabel, forecastCategoryRows } from '@/lib/finance/forecast-presentation';
-import type { Affordability } from '@/lib/types';
+import type { AffordabilityAssessment } from '@/lib/types';
 import { parsePlanningHorizon } from '@/lib/validation/affordability';
 import { parsePkrAmount } from '@/lib/validation/transaction';
 import type { ConfirmHistoryStartResult, CorrectHistoryStartResult } from '@/lib/services/history-start-commands-core';
@@ -21,7 +21,7 @@ export default function PlanningScreen() {
   const [item, setItem] = useState('iPhone 15');
   const [price, setPrice] = useState('320000');
   const [months, setMonths] = useState('6');
-  const [result, setResult] = useState<Affordability | null>(null);
+  const [result, setResult] = useState<AffordabilityAssessment | null>(null);
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState<string | null>(null);
   const [historyDate, setHistoryDate] = useState('');
@@ -53,9 +53,11 @@ export default function PlanningScreen() {
     void load();
   }, [load]);
   async function check() {
-    setChecking(true); setCheckError(null);
+    setChecking(true); setCheckError(null); setResult(null);
     try {
-      setResult(await api.affordability({ itemName: item || 'Item', price: parsePkrAmount(price), monthsAhead: parsePlanningHorizon(months) }));
+      const itemName = item.trim();
+      if (!itemName) throw new Error('Enter the purchase name.');
+      setResult(await api.affordability({ itemName, price: parsePkrAmount(price), monthsAhead: parsePlanningHorizon(months) }));
     } catch (caught) { setCheckError(caught instanceof Error ? caught.message : 'Check failed'); }
     finally { setChecking(false); }
   }
@@ -98,10 +100,50 @@ export default function PlanningScreen() {
       <Text style={local.label}>Item</Text><TextInput accessibilityLabel="Item name" value={item} onChangeText={setItem} style={local.input} placeholderTextColor={palette.muted} />
       <View style={local.formRow}><View style={local.field}><Text style={local.label}>Price (PKR)</Text><TextInput accessibilityLabel="Price in PKR" keyboardType="number-pad" value={price} onChangeText={setPrice} style={local.input} placeholderTextColor={palette.muted} /></View><View style={local.field}><Text style={local.label}>Months</Text><TextInput accessibilityLabel="Months ahead" keyboardType="number-pad" value={months} onChangeText={setMonths} style={local.input} placeholderTextColor={palette.muted} /></View></View>
       {checkError && <Text style={ui.error}>{checkError}</Text>}<PrimaryButton label={checking ? 'Checking…' : 'Check affordability'} onPress={check} disabled={checking} />
-      {result && <View style={[local.result, { borderColor: result.canAfford ? palette.success : palette.warning }]}><Text style={[local.resultTitle, { color: result.canAfford ? palette.success : palette.warning }]}>{result.canAfford ? 'Affordable' : `Short by ${formatPKR(result.shortfall)}`}</Text><Text style={ui.muted}>Available after emergency buffer: {formatPKR(result.available)}</Text>{!result.canAfford && result.monthsNeededAtCurrentRate >= 0 && <Text style={ui.muted}>Estimated saving time: {result.monthsNeededAtCurrentRate} months</Text>}</View>}
+      {result ? <AffordabilityResult assessment={result} itemName={item.trim()} /> : null}
     </Card>
     {forecast && <><Text style={ui.muted}>{forecastBasisLabel(forecastResult.qualifyingMonths)}</Text><Text style={ui.muted}>{forecast.method}</Text></>}
   </ScrollView></Screen>;
+}
+
+function AffordabilityResult({ assessment, itemName }: {
+  assessment: AffordabilityAssessment;
+  itemName: string;
+}) {
+  if (assessment.status !== 'ready') {
+    return (
+      <View style={[local.result, { borderColor: palette.warning }]}>
+        <Text style={[local.resultTitle, { color: palette.warning }]}>Assessment unavailable</Text>
+        <Text style={ui.muted}>{assessment.guidance}</Text>
+        {assessment.status === 'insufficient_history' ? (
+          <Text style={ui.muted}>
+            {assessment.availableCompleteMonths} of {assessment.requiredCompleteMonths} complete months are available. No affordability conclusion was calculated.
+          </Text>
+        ) : null}
+      </View>
+    );
+  }
+  const { result } = assessment;
+  const tone = result.canAfford ? palette.success : palette.warning;
+  return (
+    <View style={[local.result, { borderColor: tone }]}>
+      <Text style={[local.resultTitle, { color: tone }]}>
+        {result.canAfford ? `${itemName} is affordable` : `${itemName} is not affordable yet`}
+      </Text>
+      <Text style={ui.muted}>{result.reason}</Text>
+      <Text style={local.resultMetric}>Eligible active balance: {formatPKR(assessment.eligibleBalance)}</Text>
+      <Text style={ui.muted}>Protected reserve: {formatPKR(result.buffer)}</Text>
+      <Text style={ui.muted}>Available after reserve: {formatPKR(result.available)}</Text>
+      <Text style={ui.muted}>Balance after purchase: {formatPKR(result.remainingAfterPurchase)}</Text>
+      {!result.canAfford ? <Text style={ui.muted}>Shortfall after protecting the reserve: {formatPKR(result.shortfall)}</Text> : null}
+      {!result.canAfford && result.monthsNeededAtCurrentRate >= 0 ? (
+        <Text style={ui.muted}>Estimated additional saving time: {result.monthsNeededAtCurrentRate} months</Text>
+      ) : null}
+      <Text style={local.basis}>Uses active checking and savings accounts: {assessment.accounts.map((account) => account.name).join(', ')}.</Text>
+      <Text style={local.basis}>Reserve is the greater of the configured emergency target or three months of average spending. Basis: {assessment.qualifyingMonths.join(', ')}.</Text>
+      <Text style={local.basis}>This is an assessment only. No balance or transaction was changed.</Text>
+    </View>
+  );
 }
 
 function OpeningBalances() {
@@ -142,5 +184,5 @@ function OpeningBalances() {
 const local = StyleSheet.create({
   content: { padding: 16, gap: 14, paddingBottom: 32 }, pad: { padding: 16 }, title: { color: palette.text, fontSize: 28, fontWeight: '800' }, heroLabel: { color: palette.primary, letterSpacing: 1.4, fontSize: 11, fontWeight: '800' }, heroValue: { color: palette.text, fontSize: 34, fontWeight: '900' }, unavailable: { color: palette.text, fontSize: 22, fontWeight: '800' }, status: { color: palette.text, fontSize: 16, fontWeight: '800' }, success: { color: palette.success, fontSize: 13, lineHeight: 19 },
   barRow: { flexDirection: 'row', alignItems: 'center', gap: 8 }, name: { color: palette.muted, width: 88, fontSize: 11, textTransform: 'capitalize' }, track: { height: 9, flex: 1, borderRadius: 99, backgroundColor: palette.border, overflow: 'hidden' }, bar: { height: '100%', backgroundColor: palette.primary }, value: { width: 94, color: palette.text, fontSize: 10, textAlign: 'right' },
-  label: { color: palette.muted, fontSize: 12, fontWeight: '700' }, input: { minHeight: 46, color: palette.text, backgroundColor: palette.background, borderColor: palette.border, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12 }, formRow: { flexDirection: 'row', gap: 10 }, field: { flex: 1, gap: 6 }, result: { borderLeftWidth: 3, marginTop: 8, padding: 12, backgroundColor: palette.background, borderRadius: 10, gap: 4 }, resultTitle: { fontSize: 17, fontWeight: '800' },
+  label: { color: palette.muted, fontSize: 12, fontWeight: '700' }, input: { minHeight: 46, color: palette.text, backgroundColor: palette.background, borderColor: palette.border, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12 }, formRow: { flexDirection: 'row', gap: 10 }, field: { flex: 1, gap: 6 }, result: { borderLeftWidth: 3, marginTop: 8, padding: 12, backgroundColor: palette.background, borderRadius: 10, gap: 6 }, resultTitle: { fontSize: 17, fontWeight: '800' }, resultMetric: { color: palette.text, fontSize: 14, fontWeight: '800' }, basis: { color: palette.muted, fontSize: 11, lineHeight: 16 },
 });

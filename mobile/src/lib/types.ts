@@ -60,7 +60,30 @@ export type Affordability = {
   canAfford: boolean;
   available: number;
   buffer: number;
+  remainingAfterPurchase: number;
   shortfall: number;
   monthsNeededAtCurrentRate: number;
   reason: string;
 };
+export type AffordabilityAssessment =
+  | {
+    status: 'ready';
+    result: Affordability;
+    accounts: { id: number; name: string; type: 'checking' | 'savings'; balance: number }[];
+    eligibleBalance: number;
+    averageMonthlySpend: number;
+    averageMonthlySavings: number;
+    qualifyingMonths: string[];
+  }
+  | {
+    status: 'insufficient_history';
+    result: null;
+    guidance: string;
+    availableCompleteMonths: number;
+    requiredCompleteMonths: 3;
+  }
+  | {
+    status: 'insufficient_information';
+    result: null;
+    guidance: string;
+  };

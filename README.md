@@ -94,13 +94,13 @@ The following work is not complete:
 - rendered UI and Expo SQLite behavior still require emulator or physical-device qualification;
 - existing legacy future-dated rows can still make stored balances differ from cutoff-filtered reporting actuals;
 - refunds, pending transactions, and soft deletion remain unsupported;
-- seed and chat repositories do not yet have full integration/rollback coverage, and chat message ownership requires separate hardening;
+- seed failure/rollback and rendered chat interactions need further coverage; local chat ownership, persistence, reload, and retry behavior now have disposable-database tests;
 - React Native overdraft-dialog interactions do not yet have automated component tests;
 - the mobile checks are not part of the current GitHub Actions workflow;
 - root/web checks were not runnable in the latest audit environment because root dependencies were absent;
 - Expo SQLite device/emulator parity, backup/restore, authentication, and production readiness remain unverified or unimplemented.
 
-Mobile AI generation is also not yet grounded in the device's SQLite ledger. The current backend chat tools read the separate web Prisma database for a hard-coded demo user; no mobile-to-web financial synchronization exists.
+Mobile chat uses a minimal SQLite-backed aggregate snapshot for current/previous-month income, expenses, savings and category questions. Its dedicated `/api/mobile-chat` route has no Prisma demo tools and validates constrained explanations of the supplied facts. The older web chat remains a separate demo-ledger surface. No mobile-to-web financial synchronization exists. See [the mobile chat contract and setup](mobile/docs/phase-4-mobile-chat.md).
 
 Optional AI generation requires a separately operated secure HTTPS backend. Only that backend may hold provider API keys; no secret should be placed in an `EXPO_PUBLIC_*` variable.
 

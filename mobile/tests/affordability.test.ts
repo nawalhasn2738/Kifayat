@@ -25,6 +25,7 @@ test('affordability: preserves valid emergency-buffer and shortfall calculations
     canAfford: true,
     available: 100_000,
     buffer: 60_000,
+    remainingAfterPurchase: 90_000,
     shortfall: 0,
     monthsNeededAtCurrentRate: 0,
     reason: 'The purchase preserves your emergency buffer.',
@@ -73,4 +74,42 @@ test('affordability: rejects malformed profile values and unsafe monetary interm
   assert.throws(() => calculateAffordability(input(), summary({ totalBalance: Number.MAX_SAFE_INTEGER }), profile()), /Affordability requires safe whole-PKR monetary values/);
   assert.throws(() => calculateAffordability(input(), summary({ spend: { threeMonthAvg: Math.floor(Number.MAX_SAFE_INTEGER / 2) + 1 } }), profile()), /Affordability requires safe whole-PKR monetary values/);
   assert.throws(() => calculateAffordability(input({ monthsAhead: 120 }), summary({ savings: { threeMonthAvg: Math.floor(Number.MAX_SAFE_INTEGER / 120) + 1 } }), profile()), /Affordability requires safe whole-PKR monetary values/);
+});
+
+test('affordability: rejects zero, negative, fractional, and out-of-range prices', () => {
+  for (const price of [0, -1, 1.5, Number.NaN, Infinity, 2_147_483_648]) {
+    assert.throws(
+      () => calculateAffordability(input({ price }), summary(), profile()),
+      /valid positive whole amount/,
+    );
+  }
+});
+
+test('affordability: preserves exact PKR boundaries and reports remaining funds', () => {
+  const exact = calculateAffordability(
+    input({ price: 40_000, monthsAhead: 1 }),
+    summary({
+      totalBalance: 100_000,
+      spend: { threeMonthAvg: 20_000 },
+      savings: { threeMonthAvg: 0 },
+    }),
+    profile({ emergencyFundTarget: 50_000 }),
+  );
+  assert.equal(exact.available, 40_000);
+  assert.equal(exact.canAfford, true);
+  assert.equal(exact.shortfall, 0);
+  assert.equal(exact.remainingAfterPurchase, 60_000);
+
+  const over = calculateAffordability(
+    input({ price: 40_001, monthsAhead: 1 }),
+    summary({
+      totalBalance: 100_000,
+      spend: { threeMonthAvg: 20_000 },
+      savings: { threeMonthAvg: 0 },
+    }),
+    profile({ emergencyFundTarget: 50_000 }),
+  );
+  assert.equal(over.canAfford, false);
+  assert.equal(over.shortfall, 1);
+  assert.equal(over.remainingAfterPurchase, 59_999);
 });

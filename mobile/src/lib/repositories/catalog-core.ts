@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, isNull } from 'drizzle-orm';
 import { LOCAL_USER_ID } from '@/lib/db/seed';
 import { accounts, categories, categoryApplicability, transactions, userProfiles } from '@/lib/db/schema';
 import type { CategoryApplicabilityRow, CategoryRow } from '@/lib/db/schema';
@@ -45,7 +45,7 @@ export function createCatalogRepository<TRunResult>(
   const listAccounts = () => database.select().from(accounts)
     .where(eq(accounts.userId, dependencies.userId)).orderBy(asc(accounts.name));
   const listActiveAccounts = () => database.select().from(accounts)
-    .where(and(eq(accounts.userId, dependencies.userId), eq(accounts.archivedAt, null)))
+    .where(and(eq(accounts.userId, dependencies.userId), isNull(accounts.archivedAt)))
     .orderBy(asc(accounts.name));
 
   async function listCategories(): Promise<CatalogCategory[]> {

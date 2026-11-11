@@ -7,6 +7,9 @@ const applicabilityMigration = readFileSync(new URL('../drizzle/0002_noisy_prett
 const applicabilitySnapshot = JSON.parse(readFileSync(new URL('../drizzle/meta/0002_snapshot.json', import.meta.url), 'utf8'));
 const transferMigration = readFileSync(new URL('../drizzle/0003_nappy_revanche.sql', import.meta.url), 'utf8');
 const transferSnapshot = JSON.parse(readFileSync(new URL('../drizzle/meta/0003_snapshot.json', import.meta.url), 'utf8'));
+const openingBalanceSnapshot = JSON.parse(readFileSync(new URL('../drizzle/meta/0004_snapshot.json', import.meta.url), 'utf8'));
+const accountArchiveMigration = readFileSync(new URL('../drizzle/0005_deep_puma.sql', import.meta.url), 'utf8');
+const accountArchiveSnapshot = JSON.parse(readFileSync(new URL('../drizzle/meta/0005_snapshot.json', import.meta.url), 'utf8'));
 const migrationJournal = JSON.parse(readFileSync(new URL('../drizzle/meta/_journal.json', import.meta.url), 'utf8'));
 const migrationBundle = readFileSync(new URL('../drizzle/migrations.js', import.meta.url), 'utf8');
 
@@ -67,13 +70,44 @@ test('transfer migration, snapshot, journal, and Expo bundle agree', () => {
   assert.match(migrationBundle, /\bm0003\b/);
 });
 
-test('opening balance migration, snapshot, journal, and Expo bundle agree', () => {
+test('opening balance and account archival migrations, snapshots, journal, and Expo bundle agree', () => {
   const sql = readFileSync(new URL('../drizzle/0004_big_cargill.sql', import.meta.url), 'utf8');
-  const snapshot = JSON.parse(readFileSync(new URL('../drizzle/meta/0004_snapshot.json', import.meta.url), 'utf8'));
   assert.match(sql, /ALTER TABLE `accounts` ADD `opening_balance` integer/);
   assert.match(sql, /CREATE TABLE `opening_balance_audit`/);
-  assert.ok(snapshot.tables.accounts.columns.opening_balance);
-  assert.ok(snapshot.tables.opening_balance_audit);
-  assert.equal(migrationJournal.entries.at(-1).tag, '0004_big_cargill');
+  assert.ok(openingBalanceSnapshot.tables.accounts.columns.opening_balance);
+  assert.ok(openingBalanceSnapshot.tables.opening_balance_audit);
+  const entry = migrationJournal.entries.find((candidate: { tag: string }) => candidate.tag === '0004_big_cargill');
+  assert.equal(entry?.idx, 4);
   assert.match(migrationBundle, /import m0004 from '.\/0004_big_cargill\.sql'/);
+
+  assert.match(accountArchiveMigration, /ALTER TABLE `accounts` ADD `archived_at` text/);
+  assert.match(accountArchiveMigration, /CREATE UNIQUE INDEX `accounts_user_name_nocase_unique`/);
+  const archivedAt = accountArchiveSnapshot.tables.accounts.columns.archived_at;
+  assert.deepEqual(archivedAt, {
+    name: 'archived_at', type: 'text', primaryKey: false, notNull: false, autoincrement: false,
+  });
+  assert.equal(
+    accountArchiveSnapshot.prevId,
+    openingBalanceSnapshot.id,
+  );
+  assert.deepEqual(
+    accountArchiveSnapshot.tables.accounts.columns.opening_balance,
+    openingBalanceSnapshot.tables.accounts.columns.opening_balance,
+  );
+  assert.ok(accountArchiveSnapshot.tables.opening_balance_audit);
+  const entries = migrationJournal.entries as { idx: number; when: number; tag: string }[];
+  assert.ok(entries.length > 0);
+  assert.equal(new Set(entries.map((journalEntry) => journalEntry.tag)).size, entries.length);
+  for (const [position, journalEntry] of entries.entries()) {
+    assert.equal(journalEntry.idx, position);
+    if (position > 0) assert.ok(journalEntry.when > entries[position - 1].when);
+    const key = `m${String(journalEntry.idx).padStart(4, '0')}`;
+    assert.match(migrationBundle, new RegExp(`import ${key} from [']\\./${journalEntry.tag}\\.sql[']`));
+    assert.match(migrationBundle, new RegExp(`\\b${key}\\b`));
+  }
+  const openingBalanceEntry = entries.find((entry) => entry.tag === '0004_big_cargill');
+  const accountArchiveEntry = entries.find((entry) => entry.tag === '0005_deep_puma');
+  assert.equal(accountArchiveEntry?.idx, 5);
+  assert.equal(accountArchiveEntry?.idx, (openingBalanceEntry?.idx ?? -1) + 1);
+  assert.match(migrationBundle, /import m0005 from '.\/0005_deep_puma\.sql'/);
 });

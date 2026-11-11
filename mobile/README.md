@@ -47,12 +47,12 @@ The original Prisma entities were mapped to Drizzle: users, profiles, accounts, 
 Financial records never require a network connection. Chat history is local. AI generation is optional and must go through a trusted HTTPS backend:
 
 ```env
-EXPO_PUBLIC_AI_PROXY_URL=https://your-secure-service.example
+EXPO_PUBLIC_AI_PROXY_URL=https://your-secure-service.example/api/mobile-chat
 ```
 
-Only the backend may hold `GROQ_API_KEY`, model credentials, or embedding credentials. Never place secrets in an `EXPO_PUBLIC_*` variable or in the mobile bundle. Without the proxy URL, chat explains that AI is unavailable while the rest of Kifayat remains usable.
+Only the backend may hold `GROQ_API_KEY`, model credentials, or embedding credentials. Never place secrets in an `EXPO_PUBLIC_*` variable or in the mobile bundle. Configure the full HTTPS endpoint in `mobile/.env.local`, not a base URL, and restart Expo. Without the URL, supported chat questions use deterministic on-device answers. Without a server provider key, the endpoint also returns deterministic answers.
 
-The current mobile chat request does not transmit or synchronize the device's SQLite ledger. The backend route in this repository builds its financial tools from the separate web/Prisma database for a hard-coded demo user, so it must not be described as grounded in the mobile user's local finances.
+Mobile chat now sends a minimal current/previous-month aggregate snapshot and up to 12 recent messages to `/api/mobile-chat`. That route does not use Prisma demo tools. It returns validated explanations of local totals, with explicit history-completeness warnings. Transactions, merchants and descriptions stay local. The model selects deterministic explanation sentences; unsupported claims fall back to calculated facts. See [the contract, supported questions, setup and limitations](docs/phase-4-mobile-chat.md). The legacy streaming web `/api/chat` route remains a separate demo-ledger surface.
 
 ## Test evidence
 
@@ -64,6 +64,6 @@ On October 21, 2026, `npm test` run from `mobile/` completed with 207 passing ho
 - Forecasting uses a transparent rounded three-month mean and population-standard-deviation range only after readiness succeeds; total and category estimates use the same complete Karachi months.
 - The Planning screen provides explicit history-start confirmation, correction, and missing-profile recovery through the existing service APIs.
 - Web and mobile use separate databases; cross-device synchronization, automatic import, backup, and restore are not implemented.
-- The retained web/backend uses a hard-coded demo user and is not an authenticated mobile-ledger service.
+- Retained web/demo routes use a hard-coded demo user. The dedicated mobile chat route uses supplied local aggregates; neither path adds multi-user authentication.
 - A device/emulator is needed to exercise native SQLite persistence and platform-specific interaction tests.
 - Root/web checks were unavailable in the latest audit environment because root dependencies were not installed.

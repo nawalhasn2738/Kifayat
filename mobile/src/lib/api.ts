@@ -13,6 +13,8 @@ import type { TransactionInput } from '@/lib/validation/transaction';
 import { createTransfer, deleteTransfer, getTransfer, listTransfers, updateTransfer } from '@/lib/repositories/transfers';
 import type { TransferInput } from '@/lib/validation/transfer';
 import { confirmOpeningBalance, correctOpeningBalance, getOpeningBalanceState } from '@/lib/repositories/opening-balances';
+import { createChatClient } from '@/lib/services/chat-client-core';
+import { getChatContext } from '@/lib/services/chat-context';
 
 export const AI_PROXY_URL = process.env.EXPO_PUBLIC_AI_PROXY_URL?.replace(/\/$/, '') ?? '';
 export const API_URL = 'Local SQLite';
@@ -46,13 +48,7 @@ export const api = {
     return { items, total: items.length };
   },
   affordability: getAffordability,
-  chat: async (messages: { role: 'user' | 'assistant'; content: string }[]) => {
-    if (!AI_PROXY_URL) throw new Error('AI chat needs a secure backend URL. Local finance features remain available offline.');
-    const response = await fetch(`${AI_PROXY_URL}/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages }) });
-    const body = await response.json().catch(() => null);
-    if (!response.ok) throw new Error(body?.error ?? 'Chat is temporarily unavailable.');
-    return body as { text: string };
-  },
+  chat: createChatClient({ endpoint: AI_PROXY_URL, getContext: getChatContext, fetch: (...args) => fetch(...args) }),
 };
 export { CategoryApplicabilityError, OverdraftConfirmationRequiredError };
 export type { CategoryApplicabilityErrorCode, TransactionCreationOptions, TransactionMutationOptions };

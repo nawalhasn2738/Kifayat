@@ -1,4 +1,4 @@
-import { Tabs, router } from 'expo-router';
+import { Tabs, router, type Href } from 'expo-router';
 import { Pressable, StyleSheet, Text } from 'react-native';
 import { borders, colors, controlHeights, radii, spacing, typography } from '@/theme/tokens';
 
@@ -8,6 +8,7 @@ const icons: Record<string, string> = {
   planning: '◎',
   chat: '✦',
 };
+const accountsRoute = '/accounts' as Href;
 
 export default function TabLayout() {
   return (
@@ -26,7 +27,18 @@ export default function TabLayout() {
           <Text style={{ color, fontSize: 20 }}>{icons[route.name] ?? '•'}</Text>
         ),
       })}>
-      <Tabs.Screen name="index" options={{ title: 'Overview', headerTitle: 'Kifayat' }} />
+      <Tabs.Screen
+        name={'index'}
+        options={{
+          title: 'Overview',
+          headerTitle: 'Kifayat',
+          headerRight: () => (
+            <Pressable accessibilityRole={'button'} accessibilityLabel={'Manage accounts'} onPress={() => router.push(accountsRoute)} style={({ pressed }) => [styles.headerButton, pressed && styles.pressed]}>
+              <Text style={styles.headerButtonText}>Accounts</Text>
+            </Pressable>
+          ),
+        }}
+      />
       <Tabs.Screen
         name="transactions"
         options={{
